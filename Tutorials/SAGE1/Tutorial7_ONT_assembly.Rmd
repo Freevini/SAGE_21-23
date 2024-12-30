@@ -1,0 +1,262 @@
+---
+title: "Genome assembly"
+author: "Vincent Somerville"
+date: "2nd November 2021"
+# date: 29-09-2020
+# output:
+#   pdf_document:
+#      number_sections: true
+# urlcolor: Mahogany
+# linkcolor: Mahogany
+# latex_engine: texlive
+# header-includes:
+#   - \usepackage{color}
+#   - \usepackage[fontsize=9pt]{scrextend}
+# geometry: margin=0.75in
+# toc: true
+output:
+  html_document:
+    number_sections: true
+    theme: readable
+    highlight: tango
+    # code_folding: hide
+    df_print: paged
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+<!-- comment out for pdf compiling -->
+<style>
+    h1.title {
+        font-size: 40px;
+        font-family: Serif;
+        text-align: center;
+        font-weight: normal;
+        /* color: DarkRed; */
+    }
+    h1 {
+        font-size: 24px;
+        font-family: Serif;
+        font-weight: bold;
+        /* font-weight: bold; */
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    h2 {
+        font-size: 22px;
+        font-family: Serif;
+        font-weight: bold;
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    h3 {
+        font-size: 20px;
+        font-family: Serif;
+        font-weight: bold;
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    body .main-container {
+        /* max-width: 1000px; */
+        font-size: 18px;
+        font-family: Serif;
+    }
+</style>
+
+
+```{css echo=FALSE}
+/* To make hoverable links. (does not have to be called hint) Usage: */
+/* [Message to show on hover]{.hint} */
+.hint {
+  visibility: hidden;
+}
+
+.hint::before {
+  visibility: visible;
+  content: "Hint";
+  color: blue;
+}
+
+.hint:hover {
+  visibility: visible;
+  font-weight: bold;
+}
+
+.hint:hover::before {
+  display: none;
+}
+```
+
+
+```{r setup ,echo=FALSE}
+knitr::opts_chunk$set(message=FALSE, echo=FALSE, eval=FALSE,warning = FALSE)
+knitr::opts_chunk$set(engine.opts = list(bash = "-l"))
+```
+
+
+The ONT hands on part includes four tutorials, which follow the Illumina tutorials 1-4:
+
+5. Raw read analysis and filtering
+6. Genome assembly
+7. Genome polishing
+8. Genome annotation & start alignment
+
+
+![Figure 1: Assenbly workflow](images/assembly_workflow_02.png)
+
+
+
+In the following, we will go through Tutorial 6 **Genome assembly**. 
+
+
+
+# Genome assembly
+
+We learned in the assembly lecture that in general [Overlap-Layout-Consensus (OLC)](http://www.cs.jhu.edu/~langmea/resources/lecture_notes/assembly_olc.pdf) assemblers are used to assemble Nanopore data. Do you remember what is the difference to a *de Bruijn* graph assembler which is used for Illumina data? A commonly used OLC assembler is [flye](https://github.com/fenderglass/Flye/blob/flye/docs/graph_example.png), which we will use for our ONT data assembly.
+
+
+### Exercise: Write your genome assembly code {.tabset .tabset-fade .tabset-pills}
+
+#### Question {.unnumbered}
+
+Flye is on a different software stack than what we have previously used and has to be loaded as shown in the next code snippet. 
+We can apply numerous parameters with Flye. Check them out and try to write a script for the genome assembly step. Have a look at the hint and the answer if you need help. 
+
+```{bash echo=TRUE}
+module load gcc
+module load flye
+
+flye --help
+```
+
+
+
+#### Hints {.unnumbered}
+
+The parameters of interest are:
+
+```{bash echo=TRUE}
+flye --threads <number of parallel threads [1]>  \ 
+    --iterations <number of polishing iterations [1]> \
+    --genome-size <estimated genome size (for example, 5m or 2.6g)> \
+    --nano-raw <ONT raw reads> \
+    --out-dir <output directory>
+```
+
+Can you write the genome assembly script? If you are stuck look at the following script for help:
+
+#### Answer {.unnumbered}
+
+This is the final script (remember to adjust the variables according to your data and sample):
+
+```{bash echo=TRUE}
+#!/bin/bash
+
+####--------------------------------------
+##SLURM options
+####--------------------------------------
+#SBATCH --job-name genomeAssembly
+#SBATCH --account jgianott_sage
+#SBATCH --nodes 1
+#SBATCH --ntasks 1
+#SBATCH --cpus-per-task 8
+#SBATCH --mem 64G
+#SBATCH --time 03:00:00
+#SBATCH --output /users/vsomervi/scratch_link/vsomervi/logs/%x_%j.out
+#SBATCH --error /users/vsomervi/scratch_link/vsomervi/logs/%x_%j.err
+
+####--------------------------------------
+##preparation
+##set you bash variables in order to quickly call them in the script
+####--------------------------------------
+
+username=vsomervi
+personal_home_directory=/users/${username}/scratch_link/${username}
+sample_name=ESL0970
+
+##!!!!!!!here you can adjust the parameters
+##see how these bash variables are used in the script further bellow
+GENOME_SIZE=2.5m
+
+####--------------------------------------
+##modules
+####--------------------------------------
+
+module load gcc
+module load flye
+
+####--------------------------------------
+##assembly
+####--------------------------------------
+
+rm -r ${personal_home_directory}/02_assembly_ONT/
+mkdir -p ${personal_home_directory}/02_assembly_ONT/
+
+flye --threads 8  --iterations 5 --genome-size ${GENOME_SIZE} --nano-raw \
+      ${personal_home_directory}/rawReads_ONT/${sample_name}_filtered.fastq \
+      --out-dir ${personal_home_directory}/02_assembly_ONT/
+```
+
+### Genome assembly progress
+
+The genome assembly will run for ~20min, depending on the size and complexity of your genome assembly. 
+
+You can check if your assembly has run to completion by looking at your output and error files. Also there is a lot of interesting information in the error output file. Have a look at it and discuss what you see. 
+
+```{bash echo=TRUE}
+##check your error file
+less /users/vsomervi/scratch_link/vsomervi/logs/%x_%j.err
+##check your output file
+less /users/vsomervi/scratch_link/vsomervi/logs/%x_%j.out
+##check output directory and assembly
+ls ${personal_home_directory}/02_assembly_ONT/
+grep ">" ${personal_home_directory}/02_assembly_ONT/assembly.fasta
+```
+
+If all looks fine continue with the assembly analysis.
+
+## Assembly analysis
+
+After having run the assembly, we want to check a couple of output statistics. We mainly want to answer the following three questions:
+
+1. Have you assembled a circular genome? If not, what happened?
+2. What is its size? Is it in the range of the size of the Illumina-based genome assembly?
+3. Have you additional smaller contigs? What could they be?
+
+Try to find answers, fill the [google.sheets](https://docs.google.com/spreadsheets/d/13yoqbjZEOriaUmpEqeuugD-Fp5cr18mVFPInbiTH-sI/edit#gid=928171248) and discuss in the group. 
+Have a look at the following file from the assembly output to get answers:
+
+```{bash echo=TRUE}
+cat ${personal_home_directory}/02_assembly_ONT/30-contigger/contigs_stats.txt 
+```
+
+## Assembly graph
+
+When you assemble a genome with an overlap-layout-consensus algorithm (i.e. flye) you create an assembly graph. In the layout process the assembly graph is continuously simplified. However, sometimes  it cannot completely resolve the assembly graph producing two or more contigs. You can have a look at your final assembly graph if you are not sure what you have. In order to do that you need to do the following:
+
+1. Download the program Bandage for your OS. You can do this [here](https://github.com/rrwick/Bandage/releases/) and look at the wiki [here](https://rrwick.github.io/Bandage/).
+2. Transfer the assembly graph (.gfa file) to your computer.
+
+```{bash echo=TRUE}
+scp vsomervi@curnagl.dcsr.unil.ch:/users/vsomervi/scratch_link/vsomervi/02_assembly_ONT/assembly_graph.gfa /home/vincent/Desktop/courses/2021_2022_SAGE/log/
+```
+
+3. Open the assembly_graph.gfa with **bandage** and the press on the button draw graph to see it. 
+
+How does it look like? Discuss in the group and try to understand what you see. Make a screenshot of your assembly graph and post it into the #results channel on slack. We will discuss these results together in plenum. 
+
+
+## Supplemental analysis on the assembly graph
+
+If you have time you can do the following analysis:
+
+1. By clicking on the contigs you can see the coverage and length of the contig. 
+2. You can output specific contigs to your clipboard in order to blast them online. To do this you can click on the contig of interest, go to the output tab and click "copy selected node sequence to clipboard". With this you can then go to [blast](https://blast.ncbi.nlm.nih.gov/Blast.cgi). Consider and discuss the following parameters when you blast:
+
+- Which blast algorithm (blastn,blastp,tblastn,blastx) is most suited and why?
+- Which database?
+- Which program (e.g. megablast,blastn,..)
+- Which algorithm parameters could you adjust (e.g. word size)?
+
+

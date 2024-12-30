@@ -1,0 +1,730 @@
+---
+output:
+  html_document:
+    title: 220927_Tutorial1_UNIX
+    number_sections: true
+    theme: readable
+    highlight: tango
+    # code_folding: hide
+    df_print: paged
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+editor_options: 
+  chunk_output_type: console
+---
+<!-- comment out for pdf compiling -->
+<style>
+    h1.title {
+        font-size: 40px;
+        font-family: Serif;
+        text-align: center;
+        font-weight: normal;
+        /* color: DarkRed; */
+    }
+    h1 {
+        font-size: 24px;
+        font-family: Serif;
+        font-weight: bold;
+        /* font-weight: bold; */
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    h2 {
+        font-size: 22px;
+        font-family: Serif;
+        font-weight: bold;
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    h3 {
+        font-size: 20px;
+        font-family: Serif;
+        font-weight: bold;
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    body .main-container {
+        /* max-width: 1000px; */
+        font-size: 18px;
+        font-family: Serif;
+    }
+</style>
+
+
+```{css echo=FALSE}
+/* To make hoverable links. (does not have to be called hint) Usage: */
+/* [Message to show on hover]{.hint} */
+.hint {
+  visibility: hidden;
+}
+
+.hint::before {
+  visibility: visible;
+  content: "Hint";
+  color: blue;
+}
+
+.hint:hover {
+  visibility: visible;
+  font-weight: bold;
+}
+
+.hint:hover::before {
+  display: none;
+}
+```
+
+
+```{r setup ,echo=FALSE}
+knitr::opts_chunk$set(message=FALSE, echo=FALSE, eval=FALSE,warning = FALSE)
+knitr::opts_chunk$set(engine.opts = list(bash = "-l"))
+```
+
+
+# Introduction
+
+Adapted from the work of German Bonilla-Rosso and Gilles Baud for previous SAGE courses
+
+Unix is a Swiss army knife for working with big amounts of data. This tutorial will guide you through the essentail UNIX commands which we discussed during the lecture and which will be needed **throughout the SAGE course**. 
+\
+For further reading or troubleshooting, your best friend will be Google. You can be sure someone already had and asked the same question/problem. 
+\
+The world-wide webb is full of documentations and script examples all over the internet. Two nice resources are: 
+
+  - [software carpentry UNIX tutorial](http://swcarpentry.github.io/shell-novice/) for the  basics 
+  -  [Advanced Bash-Scripting Guide](http://tldp.org/LDP/abs/html/index.html) as a complete reference to bash scripting.
+\
+
+For the purpose of this exercise, carefully read each question/task and try to answer it by typing in the corresponding commands, run them by pressing return, and see what happens. For most exercises, the commands are given below the question (blocks of code in boxes).
+\
+
+Throughout SAGE, you will have to replace some parts of the commands to adapt them to your username and sample name(s). They will be indicated by  **<replace this text> **; make sure you also remove  **< > ** symbols !
+\
+
+<span style="color: red;">**DO NOT**</span> just copy and paste the commands, but type them in. This exercise is not about the results (which are pretty dull), but about you getting acquainted with and understanding how to use the command line. The assistants are here to answer your questions and to guide you. But try it first!
+\
+\
+
+# Opening the terminal and log-in the cluster {.tabset}
+
+\
+##  Terminal
+
+Open command line terminal by following the steps indicated in the presentation
+    
+ - 1.1 - <span style="color: blue;"> Windows users </span>: open Powershell
+    
+ - 1.2 - <span style="color: blue;"> Mac users </span>: Go to Applications/Utilities and open 'Terminal' or `cmd+space` and search for 'terminal'
+ 
+ - 1.3 - <span style="color: blue;"> Linux users </span> : you probably already know how to ;) 
+
+
+\
+
+## Cluster
+
+Connect/disconnect from the UNIL cluster Curnagl
+
+IMPORTANT: If you wish to work outside UNIL, you need to connect to the UNIL network via the VPN (PulseSecure), otherwise you won't be able to connect to the cluster ! 
+    
+**2.1** - Connect to the UNIL cluster Curnagl (romanche for *Pyrrhocorax graculus* ) using the following `ssh` command on the command line terminal
+
+
+**Note**: You will be asked to type a password. Don't be alarmed if you do not see anything being typed onto the screen ! Passwords do not display for security reasons.
+
+
+```bash
+ssh <username>@curnagl.dcsr.unil.ch
+```
+
+
+**2.3** - Disconnect from the UNIL cluster Curnagl using the `exit` command in the terminal
+
+```bash
+exit
+```
+## Question 
+
+What is the difference of the prompt when connected to the cluster versus when being on your local computer ? 
+
+## Answer
+
+Look at the location (after the @ )
+```bash
+## my local computer
+garancesarton-loheac@wl1s-228-9.unil.ch:/Users/garancesarton-loheac $
+
+## the cluster
+[gsartonl@curnagl scratch]$
+
+```
+
+-> Knowing when you are on the cluster or your local machine will help you later !
+
+
+**2.4** - Re-connect again to Curnagl using the command in 2.2.
+
+```bash
+ssh <username>@curnagl.dcsr.unil.ch
+```
+
+Now is time for a break until we continue in class !
+***
+\
+\newpage
+
+# Navigating in the cluster
+
+Now you are connected to the UNIL cluster Curnagl. The aim of these exercises is to make you use and understand UNIX commands that allow us to navigate through folders, inspect files, and copy them to different locations.
+
+## Useful commands to know where you are and what is there :  `pwd`, `ls` and `cd`
+
+### Identify in which directory you are; make sure you are in your home directory.
+Your home directory is symbolized by `~` e.g `[gsartonl@curnagl ~]$` (option + N for Mac users)
+
+```bash
+pwd
+``` 
+ ! <span style="color: red;"> `pwd` : print working directory </span> 
+    
+### List all files/folders in that directory
+
+How many are there? ; Go to the parent directory of your home and list all files/folders. What are these folders? Can you access them ? Now back to your home directory.
+
+```bash
+ls #list #check what is in that directory
+cd .. #go one directory up (i.e. to the parent directory of your home)
+pwd #check where you are
+ls #check what is in that directory
+cd gsartonl #can you access my home directory ?
+cd <username> #go back to your home directory
+pwd #confirm that you are in your home
+```
+ ! <span style="color: red;"> `ls` :  list directory contents </span> 
+ 
+ ! <span style="color: red;"> `cd` :  change directory </span> 
+ 
+ ! <span style="color: red;"> `pwd` : print working directory </span> 
+    
+### Try to go to the SAGE working directory: 
+
+`/scratch/jgianott/SAGE/SAGE2022_2023/`
+
+ <span style="color: green;">  Tip : when you have long path names to type, you can use the **tab key** to do some auto-complete. If the auto-complete is not working it may be because of a typo. </span> 
+
+```bash
+cd /scratch/jgianott/SAGE/SAGE2022_2023/ #go to working directory of SAGE from root
+pwd
+```   
+
+
+# Manipulating Directories: 
+
+Learn how to create your own sub-directory with your username and learn how to remove directories. Then move into that directory and list its contents
+
+## Generate your SAGE working directory
+
+<span style="color: green;">  Tip : Use the same `username` as your logging. This is the place where you will work for most of the year !  </span> 
+      
+```bash
+mkdir /scratch/jgianott/SAGE/SAGE2022_2023/<username> #create a directory
+```
+
+## Remove a directory    
+
+<span style="color: red;">  Be careful when you delete directories and files. There is no bin and no message to ask if you are certain, when they are gone its forever ...  
+
+If you are not sure when you need to remove something, you can use the command `rm -i`. This way you will have to confirm the deletion of each item within the target directory </span> 
+
+
+```bash
+rm  <username> # is this command working ?
+rm -r <username> # is it now ?
+ ```
+
+<span style="color: green;">  Tip : Use  `rm <filename>` when you need to remove a file ; use Use  `rm -r <directory>` when you need to remove a directory and all its content. </span> 
+
+## Re-create your directory    
+    
+```bash
+mkdir <username> #create a directory
+cd <username>
+ls
+ ```
+
+**Question**: what is the difference between the two `mkdir` commands in 4.1 and 4.3? When would the first command be more convenient to be used
+
+ ! <span style="color: red;"> `mkdir` :  make directories </span> 
+ 
+ ! <span style="color: red;"> `rm` :  remove file </span> 
+ ! <span style="color: red;"> `rm -r ` :  for  directory </span> 
+ ! <span style="color: red;"> `rm -ri` :  remove file or directory and be asked for confirmation</span> 
+ 
+ ! <span style="color: red;"> `ls` : list directory contents </span> 
+
+
+# Make your life easier with links 
+
+The full path to navigate to the working directory is ridiculously long `/scratch/jgianott/SAGE/SAGE2022_2023/`. Here, we create a link in your home directory to navigate to the working directory through a shortcut.
+
+## Create the soft link:
+
+```bash
+cd ~ #go back to home directory
+pwd #confirm that you are in the right place :)
+ln -s /scratch/jgianott/SAGE/SAGE2022_2023/ /users/<username>/sage22 #create link
+ls
+ls -l #list files, folders, links with details...
+unlink sage22 #will remove the link
+ln -s /scratch/jgianott/SAGE/SAGE2022_2023/ /users/<username>/sage22 #re-create link
+```   
+
+ 
+ 
+## Use the soft link to navigate to the working directory
+    
+    
+```bash
+pwd
+cd sage22 #go to the directory linked via 'scratch'
+pwd
+pwd -P
+```   
+
+**Question**: What is the difference between `pwd` and `pwd -P`? Why to work on scratch and not in the home directory?
+ 
+ ! <span style="color: red;"> `pwd` : print working directory </span> 
+
+     
+# Copy a file 
+
+Aim : Make a sub-directory named `example` in your SAGE working directory and copy the files named `ESL0784.fna` and `ESL0784.faa` from the directory `/scratch/jgianott/SAGE/SAGE2022_2023/common_files/tutorial_1`
+ 
+## Create a new sub-directory
+Go to your working directory and make a sub-directory called `example` so that folder structure is equal to `/scratch/jgianott/SAGE/SAGE2022_2023/<username>/example/`
+
+    
+## Copy the files into your sub-directory. 
+
+Which of the following commands would you use for this task?
+
+```bash
+cp /scratch/jgianott/SAGE/SAGE2022_2023/common_files/tutorial_1/ESL0784.fna /users/<username>/sage22/<username>/example #1
+##
+cp /scratch/jgianott/SAGE/SAGE2022_2023/common_files/tutorial_1/ESL0784.fna ~/scratch/<username>/example #2
+##
+cp /scratch/jgianott/SAGE/SAGE2022_2023/common_files/tutorial_1/ESL0784.fna ./example #3
+```  
+
+**Question**: What is the difference between the three commands above?
+ 
+**Bonus**: How to copy several files at once? What are wildcards and how to use the character * on the command line?
+ 
+ ! <span style="color: red;"> `cp <file_to_copy> <destination>` : print working directory </span>  
+
+\
+  
+## Read a file {.tabset}
+
+Read the contents of the two files 
+
+
+### Exercise: 
+
+Try each of these commands : `cat`, `more`, `less`, `tail` and `head`. 
+
+**Question**: What is the content of the two files? How do they differ? What is the difference between the five commands?
+
+```bash
+cat ESL0784.fna
+more ESL0784.faa #and so on ...
+``` 
+
+### Answer
+ 
+ ! <span style="color: red;"> `cat` :  concatenate and print files </span> 
+ 
+ ! <span style="color: red;"> `more` :  More is a filter for paging through text one screenful at a time. </span> 
+ 
+ ! <span style="color: red;"> `less ` : opposite of more </span> 
+ 
+ ! <span style="color: red;"> `head` : display first lines of a file</span> 
+ 
+ ! <span style="color: red;"> `tail` : display the last part of a file </span> 
+
+\
+
+## Edit a file
+
+There is a typo in the species name in 'ESL0784.fna'. Use the text editor `nano` (or `vi` if you already have your preferences) to correct it to 'Bifidobacterium'
+
+```bash
+nano ESL0784.fna 
+# this will open the txt editor nano. To save and close it, press Ctrl+X  
+# and follow the instructions given on the bottom of the terminal.  
+``` 
+
+
+
+**Break time ! **
+
+***
+\
+\newpage
+
+
+
+# Editing files using the command line
+
+The idea is to learn basic text editing options in UNIX and to appreciate some of the powerful bash commands that facilitate text mining, parsing, and editing. To this end, we will focus on the content of the two files that we have copied in the previous part into the `/example` folder in your SAGE working directory on Curnagl.
+
+## Grep {.tabset}
+### Questions
+Here we will learn how to use the command 'grep' to search for specific text pieces in files; in our case in ESL0784.fna and ESL0784.faa
+
+The general sequence of the promoter motif TATA-box (or more precisely the Pribnow box in bacteria) is "TATWAWT", where "W" can mean 'A' or 'T'. Find all occurrences of the different TATA-box variants.   
+    
+    
+```bash
+grep 'TATAAT' ESL0784.fna
+grep 'TATTAT' ESL0784.fna
+grep 'TATATT' ESL0784.fna
+``` 
+
+ ! <span style="color: red;"> `grep` : file pattern searcher </span> 
+
+**Question**: Usually there is a gene located downstream of a real TATA-box. How would you get the downstream sequence of each TATA-box to explore potential gene sequences using a modified grep command ? (Tip: look at the presentation!)
+
+
+**Question**: Let's quickly view all the descriptions in the headers of file ESL0784.fna without scrolling... how would you do it?
+
+**Question**: How many sequences are in ESL0784.faa ?
+
+ ! <span style="color: green;"> Tip : type `man <command>`to know which options you can use </span> 
+
+### Answer 
+
+```bash
+grep -A3 '>' ESL0784.fna  # '>' defines the beginning of a header in a fasta file -A option is to print the 3 next lines after the pattern
+```
+
+```bash
+grep '>' ESL0784.fna  # '>' defines the beginning of a header in a fasta file
+``` 
+   
+```bash
+grep -c '>' ESL0784.faa 
+    # -c is a grep option to count occurrences#
+    # Hint: you can type 'man grep' for seeing the whole manual of a command
+```
+\
+
+## Sed
+
+
+Here we will learn how to use the command `sed` to search and replace specific text fragments, and convert the format and content of files. In the header of file ESL0784.faa, the two fields are separated by the pattern ` | `. But many programs have problems reading blank spaces. So lets transform the headers to a more computer-friendly format.
+
+`option+7` -> | on mac
+
+1) First, save the original headers to a new file. Have a look at the file to control that it indeed contains the headers!
+    
+```bash
+grep '>' ESL0784.faa > original_headers.txt # With ">" you can re-direct output to a file
+cat original_headers.txt
+```
+    
+2) Now, substitute the blank spaces delimiting the fields with something more friendly using sed.
+    
+```bash
+sed 's/ | /:/g' ESL0784.faa
+```
+
+ ! <span style="color: red;"> `sed 's/PatternToChange/Replacement/g` : stream editor
+  the `s and g` are here to tell that we want to replace all occurences of the patters </span> 
+
+
+3) It is hard to see all headers in-between the sequences. So, let's use 'grep' to display only the headers. To combine two commands in consecutive manner we can use our first **pipe** `|`! Pipes allow to redirect output from command 1 to input for command 2, and from command 2 to 3 and so on.... 
+    
+```bash
+sed 's/ | /:/g' ESL0784.faa | grep '>' #the pipe combines two commands 'sed' and 'grep'
+````
+
+4) Now each field should be delimited by `:`. However, you still have ` ` spaces. Let's convert them to underscores `_`. As said before, you can create a whole pipeline of consecutive commands by connecting them with pipes `|`.
+    
+```bash
+sed 's/ | /:/g' ESL0784.faa | sed 's/ /_/g' | grep '>' #here we have combined three commands
+```
+    
+5) It turns out that ':' is also not a very friendly field delimiter either. Let's change it back to a pipe (without the spaces)
+    
+```bash
+sed 's/ | /:/g' ESL0784.faa | sed 's/ /_/g' | sed 's/:/|/g' | grep '>' #here we have combined four commands
+```
+    
+6) Great! Now lets save the modifications into a new file, but including the sequences. To do so, we skip the last 'grep' command from 5 and replace it with a 'write-to-file' command.
+  
+```bash
+sed 's/ | /:/g' ESL0784.faa | sed 's/ /_/g' | sed 's/:/|/g' > ESL0784_headers.faa
+```
+
+
+
+\
+
+## Sed2 {.tabset}
+
+Sometimes it is convenient to have both the header and the sequence in a single line, to be able to modify them at once. Here, we want to simply reorder the fasta objects (i.e. header + sequence) from last to first.
+  
+1) First of all, we are going to append a 'tab' at the end of each header. To this end, we need to match all header lines `>` and then tell `sed` to append a tab at the end of the line (you will see later why the tab is needed; note: in UNIX, the symbol for a tab is `\t` . We will use an extra option of `sed`, which identifies the lines to work with first, looks for a matching pattern, and then makes the substitution.
+    
+    
+```bash
+sed '/<matched_lines>/s/<pattern>/<substitution>/g' #this is the general format of the sed command
+sed '/>/s/$/\t/g' ESL0784_headers.faa #  "\t" is the symbol for a tab ; $ is for end of line
+```
+
+**Note**: You won't see this change because tabs are invisible at the end of a line.
+
+2) Now we will remove ALL returns/enters/newlines/line breaks. `\n` is the symbol for a newline/line breaks. (NOTE: the character for "newline" changes across OS. Windows sometimes use `\r` as newline character, so if things do not seem to be working and you are using a file created in Windows, try adding an extra `tr -d \r` command).
+    
+ 
+```bash
+sed '/>/s/$/\t/g' ESL0784_headers.faa | tr -d '\n'
+```
+
+## Tr {.tabset}
+    
+### Question: 
+Here we used a new command 'tr'. Inform yourself about the command by searching the internet, and by using `man tr`. Try to explain what the command is doing!
+
+ ! <span style="color: green;"> `Tip` : when you don't know or remember how to use a command you can always type `man <command>` or `<command> --help` to display the help manual </span> 
+ 
+
+
+### Answer: 
+ ! <span style="color: red;"> `tr` : translate character </span> 
+ 
+ ! <span style="color: red;"> `tr -d` : Delete characters in string from the input. </span> 
+
+\
+
+3) Great! Now we have ALL headers and sequences on a single line... but we wanted to have each header with its corresponding sequence on one line! **Remember**, each header begins with a `>`. So, we will put back a return/enter/newline before all `>` (except the first one) with sed.
+    
+```bash
+sed '/>/s/$/\t/g' ESL0784_headers.faa | tr -d '\n' | sed 's/>/\n>/2g'  # The '/2g' means 'only substitute from the second match'...excluding the first match
+```
+    
+
+4) Now each line should have a header, then a tab, and then the sequence. Now you can use 'sort' to order them in reverse (i.e.according to their gene ID in reverse).
+    
+```bash
+sed '/>/s/$/\t/g' ESL0784_headers.faa | tr -d '\n' | sed 's/>/\n>/2g' | sort -r
+```
+
+! <span style="color: red;"> `sort` or merge records (lines) of text and binary files </span>   
+
+
+
+## Tr2 {.tabset}
+
+### Exercise
+
+Finally, we will format the file into fasta format (but with sequences reordered according to their gene ID in reverse).
+Try to convert back the `tab` into `newline` using **translate**.
+    
+### Answer  
+```bash
+sed '/>/s/$/\t/g' ESL0784_headers.faa | tr -d '\n' | sed 's/>/\n>/2g' | sort -r | tr '\t' '\n' 
+```
+### Question    
+
+Which command would you need to add to **print only the headers** and make sure the genes are correctly ordered? Don't forget to save it back into another file with the command below!
+
+### Answer
+```bash
+sed '/>/s/$/\t/g' ESL0784_headers.faa | tr -d '\n' | sed 's/>/\n>/2g' | sort -r | tr '\t' '\n' > ESL0784_headers_reversed.faa
+```
+    
+### Question    
+
+Now, 'ESL0784_headers_reversed.fas' and 'ESL0784_headers.fas' do not exactly have the same format (besides the order)... can you spot the difference(s)?
+
+
+Once you've find the difference it's break time `\o/` !
+
+\newpage
+***
+
+
+
+
+
+\
+
+# Introduction to loops (round, round they go)
+
+https://www.youtube.com/watch?v=pbSJtfj3Jho
+
+
+It happens quite often that you want to carry out the same command on several files (sometimes thousands of files). Instead of doing it 'manually' one by one, there are several ways to execute the same command on many different files in an iterative process. 
+
+This is what we will look into here. There are five files containing sequences (i.e.fragments or contigs) of whole genomes in the  `/scratch/jgianott/SAGE/SAGE2022_2023/common_files/tutorial_1`. Four of them belong to Lactobacillus species. Let's execute the same command as above in an iterative manner on all four genomes.
+
+## Iteration 
+
+Let's first carry out a couple of helpful commands on a single genome file. Then, we put these commands together in a loop to iteratively apply it to several genome files.
+
+### Copy the four genomes into your working directory.
+    
+
+```bash
+cp /scratch/jgianott/SAGE/SAGE2022_2023/common_files/tutorial_1/Lsp* /users/<username>/sage22/<username>/example/
+```
+    
+### Count how many contigs are in each file.
+    
+```bash
+grep -c '>' Lsp* 
+```
+    
+### Check if any bases are lowercase, undefined (N) or uracil (U)
+    
+```bash
+grep -v '>' Lsp_ESL0785.fna | grep "[acgtNU]" 
+```
+    
+### Genome size
+Let's count the total genome size of Lsp_ESL0785.fna (i.e. total length of all contigs, all bases). We will use pipes and a couple of new features.
+    
+```bash
+grep -v '>' Lsp_ESL0785.fna | tr -d '\n' | tr -d '\r' | tr -d ' ' | wc -c
+```
+
+**Question**: Figure out what the different commands in the script are doing and explain it to each other!
+    
+    
+### Now, we do it in an interative way. 
+
+Make a for loop that takes each genome and modifies the headers and reorders them as we did above. Basically, all you need is to copy the exact command you used, and substitute the filename with the variable $file.
+    
+```bash
+for file in Lsp*; do 
+> echo $file
+> grep -v '>' $file | tr -d '\n' | tr -d '\r' | tr -d ' ' | wc -c
+    > sed 's/ | /:/g' $file | sed 's/ /_/g' | sed 's/:/|/g' > ${file%.fna}_headers.fna 
+    > sed '/>/s/$/\t/g' ${file%.fna}_headers.fna | tr -d '\n' | sed 's/>/\n>/2g' | sort -r | tr '\t' '\n' > ${file%.fna}_reversed.fna
+> done
+```
+\
+
+# Code your first scripts
+
+Writing such long commands into the terminal begins to be cumbersome, particularly when you need to remember the full sed commands and pipelines. As we mentioned at the beginning of the lecture, BASH can be used both interactively on the command line (as you have been using it), or to execute commands written in a script. So let's explore some scripting in bash.
+
+
+## Create a new text file 
+
+Use nano to edit & save your script. By convention, we use the extension '.sh' for shell scripts.
+    
+```bash
+nano myFirstScript.sh
+```
+## Write the commands
+
+Inside nano, write the loop as indicated below. It is the same series of commands you executed in the previous exercise. Note that the first characters in the first line of a script is always <span style="color: red;"> #!  </span> (we call it shebang). 
+This tells the computer that the script is executable, indicates which language should be used to read it, and where to find the interpreter.
+In this case, we use the BASH interpreter itself that is located in `/bin/bash`. 
+
+Commands are written sequentially as you would write them in the command line, one command per line. Since there is no prompt, you should start at the beginning of the line. You can include commentaries using `#`. The interpreter will not read anything that is after a `#` in a line. 
+**To differentiate the commands inside the loop, use tabs.**
+
+And do not forget to close the loop with `done`! This is the bash script to be modified and copied into the file:
+
+
+```bash
+#!/bin/bash
+# Here you can put a title of the script and a short description of what it is doing.
+cd /users/<username>/sage22/<username>/example   # This is just to make sure that the script is executed in the correct directory. Use your own path!Modify the path!!!
+echo "These are the total length of the sequences in each file:"
+for file in Lsp*; do 
+    echo $file
+    grep -v '>' $file | tr -d '\n' | tr -d '\r' | tr -d ' ' | wc -c
+    sed 's/ | /:/g' $file | sed 's/ /_/g' | sed 's/:/|/g' > ${file%.fna}_headers.fna 
+    sed '/>/s/$/\t/g' ${file%.fna}_headers.fna | tr -d '\n' | sed 's/>/\n>/2g' | sort -r | tr '\t' '\n' > ${file%.fna}_reversed.fna
+    # you can add more commands to be executed within the loop here!
+done
+echo "The files with reformatted headers end with *_headers.fna"
+echo "The files with genes in reverse order end with *_reversed.fna" # you can add more commands here!
+```
+
+## After having saved the script, execute your script like this
+    
+```bash
+bash myFirstScript.sh  # Hint: You need to tell the computer where is your script!
+```
+ 
+
+Break time ! 
+
+***
+
+\newpage
+
+\
+
+
+# Bonus part for the fast ones :) 
+
+The following are a couple of bonus tasks that you can work on if you finish early. 
+
+
+## Quotes
+In linux, there is a difference between single quotes '' and double quotes "".
+
+ - 'single quotes' will take anything between them literally. That is, `$variable` means the string of characters `$variable`.
+ 
+ - "double quotes" will interpolate characters and variables. That is, `$variable` means the value assigned to the variable `$variable`.
+    
+Use this exercise to further understand the meaning of quotes:
+      
+```bash
+myvar=9       # define variable $myvar
+echo $myvar   # print the value contained in variable $myvar
+echo "$myvar"
+echo '$myvar' 
+echo "'$myvar'" 
+echo '"$myvar"'
+```
+      
+      
+## MODIFY
+
+Reformat the headers of the Lactobacillus *reversed.fna genomes with the following modifications:
+    
+ - 1) Add your initials at the beginning of each contig header
+    
+ - 2) Simplify the header so it only displays your initials, the contig number, and the species name. One of mine would look like: >GSL_CNTG0001_Lsp_ESL0785
+    
+## Compute GC content
+
+The GC content is an important feature of complete genomes. Calculate the GC content by going through the following steps. Hint: You can put the three steps together in the final script
+    
+  - 1) Count how many G and how many C are in the complete genomes
+    
+  - 2) Count the total length of each complete genome
+    
+  - 3) Dividing the total number of G and C by the total genome length
+
+  - 4) Can you figure out what this script  is doing? Can you improve it?
+```bash
+  #! /bin/bash
+  $uno = "<<--- HERE"
+  for dos in Lsp*; do
+    length=$(grep -v '>' $file | tr -d '\n' | tr -d '\r' | tr -d ' ' | wc -c)
+    echo "$dos : $length"
+    sed 's/U/T/g' $dos | sed '/[acgtNU]/s/$/\t $uno/g'
+  done
+```
+

@@ -1,0 +1,714 @@
+---
+title: "ASV-isolate matching"
+date: 28-03-2023
+# output:
+#   pdf_document:
+# urlcolor: Mahogany
+# linkcolor: Mahogany
+# latex_engine: texlive
+# header-includes:
+#   - \usepackage{color}
+#   - \usepackage[fontsize=9pt]{scrextend}
+# geometry: margin=0.75in
+# toc: true
+output:
+  html_document:
+    theme: united
+    highlight: tango
+    # code_folding: hide
+    df_print: paged
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+
+```{r setup, include=FALSE}
+# knitr::opts_knit$set(root.dir = 'path')
+# bash is invoked with the R function system2() which ignores ~/.bash_profile etc.
+# If you want these profile files to be executed just like when you use the terminal, you may pass the argument -l to bash via engine.opts
+knitr::opts_chunk$set(engine.opts = list(bash = "-l"), eval = FALSE)
+# load libraries
+library(ggplot2)
+```
+
+# 1. Intro
+
+In this tutorial we will identify which ASVs correspond to the genomes from bacteria isolated and sequenced during SAGE I. This will give us an idea of how well represented our collection of isolates is compared to the bacterial diversity present in the water kefir.
+
+This part of the tutorial will be executed on the **_curnalg_** server, and later in the R server on **_barney_**. It is worth it to remember how to move files from these servers to your computer and vice versa using the `scp` command in terminal. However, there's not a direct way of moving the files between *curnalg* and *barney*, so you will have to copy the files into your computer before moving them to the other server.
+
+As a recap of how the `scp`comand works:
+
+```{bash engine.opts="-l", eval=FALSE}
+#Remember to exit the cluster if you are logged in
+scp source/file/path/ target/file/path
+
+#for example to move from CURNALG to your computer:
+scp <username>@curnagl.dcsr.unil.ch:/scratch/jgianott/.../FILE.txt /mnt/c/Users/.../FILE.txt
+
+#to move from your computer to CURNALG:
+scp /mnt/c/Users/.../FILE.txt <username>@curnagl.dcsr.unil.ch:/scratch/jgianott/.../FILE.txt 
+
+#to move from BARNEY to your computer:
+scp <etuXX>@barney.unil.ch:/mnt/raidarray/home/<etuXX>/FILE.txt /mnt/c/Users/.../FILE.txt
+
+#to move from your computer to BARNEY
+scp /mnt/c/Users/.../FILE.txt <etuXX>@barney.unil.ch:/mnt/raidarray/home/<etuXX>/FILE.txt
+```
+
+Pay attention to the difference between `<username>@curnalg.dcsr.unil.ch` (contains .dcsr.) and `<etuXX>@barney.unil.ch`
+
+# 2. Identification of 16S rRNA gene sequences from SAGE I genomes
+
+Amplicon sequence variants (ASVs) are sequenced amplicon fragments of the 16S rRNA gene present in the sample metagenome (collection of genomes directly extracted from an environmental sample). Therefore, to match ASVs to our genomes from SAGE I we need to first identify and extract the 16S rRNA genes from the assembled genomes. 
+
+We did this for you using [barrnap](https://github.com/tseemann/barrnap). Barrnap extract not only the 16S rRNA gene but also the other ribosomal genes (5s and 23S). We also filtered the barrnap results to remove the 5S and 23S rRNA genes. The resulting set of 16S rRNA sequences is stored in a multifasta file called **Isolates_16SrRNAs.fasta** located in the following path.
+
+```{bash engine.opts="-l", eval=FALSE}
+/scratch/jgianott/SAGE/SAGE2022_2023/common_files/ASV_matching/Isolates_16SrRNAs.fasta
+```
+
+<span style="color: red;">**_Q:_**</span> Why for targeted metagenomics (or amplicon sequencing) the 16S rRNA gene is used?
+
+<span style="color: red;">**_Q:_**</span> Examine the file. How many 16S rRNA genes have been identified in our collection of assembled genomes?
+
+# 3. Create a BLAST database with the ASV sequences
+
+In order to compare the 16S rRNA sequences from the assembled genomes with the ASVs obtained using DADA2 in the previous tutorial we first need to build a BLAST database which will allow BLAST to efficiently iterate through all the ASV sequences.
+
+1. Locate the "**phyloseq_ASVs.fasta**" file on the *barney* server and annotate the full path. Download it into your computer with the `scp` comand, and upload it into the *curnagl* server.
+
+2. Log in into the curnagl server. Which modules are required to use BLAST? Do you remember how to search for them?
+
+### {.tabset .tabset-fade .tabset-pills}
+
+####
+
+#### Hint
+
+```{bash engine.opts="-l", eval=FALSE}
+module spider blast
+```
+
+#### Solution
+
+The command used above will tell you that in order to use "blast-plus/2.12.0" you first need to load the module "gcc/10.4.0".
+
+```{bash engine.opts="-l", eval=FALSE}
+module load gcc/10.4.0
+module load blast-plus/2.12.0
+```
+
+###
+
+3. The command used to build a BLAST database from a multifasta file is called **makeblastdb**. We will use the following options (do not execute anything yet, we will have to create an script!):
+
+```{bash engine.opts="-l", eval=FALSE}
+makeblastdb –in <phyloseq_ASVs.fasta> --dbtype nucl -out <path_to>/ASVs_DB
+```
+
+Where `-in` specifies the multifasta file with the ASVs sequences (phyloseq_ASVs.fasta) generated in the previous tutorial, `--dbtype` specifies it is nucleotides and `-out` specifies the name of our database and where we want to store it.
+
+
+4. Once we have our database (ASVs_DB) and we have also our 16S rRNA sequences from the assembled genomes (Isolates_16SrRNAs.fasta) we are ready to execute **blastn**. The comand we will use contains the following options:
+
+```{bash engine.opts="-l", eval=FALSE}
+blastn –query <Isolates_16SrRNAs.fasta> \
+       -task megablast \
+       -db <ASVs_DB> \
+       -out <Blast_16SrRNAs_vs_ASVs_results.txt> \
+       -outfmt “7 std qcovs” \
+       -perc_identity 95
+```
+
+Where `-query` is our isolates 16S rRNAs, `-task` specifies to use the "metablast" algorithm to search for similar sequences, `-db` specifies the database generated with all the ASV sequences in the previous step, `-out` specifies the output file, `-outfmt` specifies the formatting of the output file and `-perc_identity 95` will keep only results with a minimum sequence identity of 95%.
+
+5. Generate and execute the script to (1) load the required modules, (2) make the blast database with the ASV sequences and (3) blast the 16S rRNA gene sequences from the assembled genomes against the ASVs database. By now, based on the knowledge you acquired during SAGE I, you should be able to make an script. This script should also include the SLURM OPTIONS and variables to assign paths to facilitate your life. Your script should look something like this:
+
+```{bash engine.opts="-l", eval=FALSE}
+#!/bin/bash
+
+######### SLURM OPTIONS
+#SBATCH --job-name ASVmatching
+#SBATCH --account jgianott_sage
+#SBATCH --nodes 1
+#SBATCH --ntasks 1
+#SBATCH --cpus-per-task 8
+#SBATCH --mem 8G
+#SBATCH --time 1:00:00
+#SBATCH --error /users/<username>/sage22/<username>/logs/ASVmatch.err
+#SBATCH --output /users/<username>/sage22/<username>/logs/ASVmatch.out
+
+### Loading the modules
+
+module load gcc/10.4.0
+module load blast-plus/2.12.0
+
+### Create variables and directory to store results
+
+scratch=/scratch/jgianott/SAGE/SAGE2022_2023
+username=<username>
+phylo_ASVs=<path_to_phyloseq_ASVs.fasta>
+
+mkdir ${scratch}/${username}/ASV-isolate_match
+asv_dir=${scratch}/${username}/ASV-isolate_match
+
+cp ${scratch}/common_files/ASV_matching/Isolates_16SrRNAs.fasta ${asv_dir}/Isolates_16SrRNAs.fasta
+
+### Execute commands
+
+makeblastdb -in ${phylo_ASVs} -dbtype nucl -out ${asv_dir}/ASVs_DB
+
+blastn -query ${asv_dir}/Isolates_16SrRNAs.fasta -task megablast -db ${asv_dir}/ASVs_DB -out ${asv_dir}/Blast_16SrRNAs_vs_ASVs_results.txt -outfmt '7 std qcovs' -perc_identity 95
+```
+
+Change `<username>` by your username.
+
+Make sure your link to scratch is called `sage22` if not, modify slurm --error and --output lines accordingly
+
+Make sure you have a directory named `logs` to store the standard output and error. In not, modify lines accordingly or create that directory.
+
+Modify `<path_to_phyloseq_ASVs.fasta>` by the actual full path where you put the "phyloseq_ASVs.fasta" file.
+
+Execute it with
+
+```{bash engine.opts="-l", eval=FALSE}
+sbatch ASV_matching.sh #or the name of your script.
+#and check progress with
+sacct
+```
+
+It should take less than 1 min. Once is completed, make sure you check the error files and the output generated.
+
+
+Do you know how to interpret the BLAST result?
+
+<span style="color: red;">**_Q:_**</span> What is a query? How many queries are in the blast output?
+
+<span style="color: red;">**_Q:_**</span> What is the difference between a query and its hits?
+
+
+# 4. Processing BLAST results
+
+If you take a look at the BLAST result, it contains per query 16S rRNA sequence (from the assembled genomes), a block of commented lines (#) with info about the blast version, query sequence and database, field column names and hits found. This commented lines are followed by the hits, which contains the information we are interested in. An example of the blast result is:
+
+```{bash engine.opts="-l", eval=FALSE}
+# BLASTN 2.12.0+
+# Query: 16S_rRNA::ESL0963_contig_1:403998-405554(+)
+# Database: /scratch/jgianott/SAGE/SAGE2022_2023/dgarrido/ASV-isolate_match/ASVs_DB
+# Fields: query acc.ver, subject acc.ver, % identity, alignment length, mismatches, gap opens, q. start, q. end, s. start, s. end, evalue, bit score, % query coverage per subject
+# 16 hits found
+16S_rRNA::ESL0963_contig_1:403998-405554(+)	ASV4	100.000	253	0	0	549	801	1	253	1.91e-132	468	16
+16S_rRNA::ESL0963_contig_1:403998-405554(+)	ASV16	99.605	253	1	0	549	801	1	253	8.89e-131	462	16
+16S_rRNA::ESL0963_contig_1:403998-405554(+)	ASV1	98.819	254	1	2	549	801	1	253	1.92e-127	451	16
+16S_rRNA::ESL0963_contig_1:403998-405554(+)	ASV982	98.425	254	2	2	549	801	1	253	8.95e-126	446	16
+...
+```
+
+What we want to extract from here is the exact ASV match (those with 100% sequence identity): the ASV-isolate match.
+
+### 4.1. Upload BLAST output to the barney server
+
+Copy the blast output (Blast_16SrRNAs_vs_ASVs_results.txt) to your computer and upload it into the *barney* server to further analysis with R. Now in barney, we will continue with R server to process the data.
+
+### 4.2. Load required packages:
+
+```{r message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggsci)
+library(ggplot2)
+library(ggpubr)
+library(phyloseq)
+```
+
+### 4.3. Load the BLAST result
+
+Remember to change the path of the blast result to the relative path of your R session or full path of the file.
+
+```{r,}
+#load blast results
+blast_res = read.table("Blast_16SrRNAs_vs_ASVs_results.txt", #CHANGE to your PATH 
+                       header = F, 
+                       sep = "\t", 
+                       comment.char = "#")
+head(blast_res)
+```
+
+<span style="color: red;">**_Q:_**</span> Do you know what `comment.char = "#"` does?
+
+Look at the output of `head(blast_res)`. We are missing the column names, now only named V1, V2, V3... In addition, the first column (the one containing the 16S rRNA query sequences from the assembled genomes) looks a bit hard to interpret.
+
+### 4.4. Rename columns and query entries
+
+```{r}
+#extract col names
+blast_cols = read.csv2("Blast_16SrRNAs_vs_ASVs_results.txt", #CHANGE to the PATH of the Blast result file
+                  header = F, 
+                  sep = ",",
+                  skip = 3)[1,]
+#rename fields to avoid weird characters and spaces
+blast_cols = gsub("# Fields: ", "", blast_cols)
+blast_cols = gsub("^ ", "", blast_cols)
+blast_cols = gsub(" ", ".", blast_cols)
+blast_cols = gsub("%", "perc", blast_cols)
+#assign names to blast_res column names
+colnames(blast_res) = blast_cols
+head(blast_res)
+```
+
+<span style="color: red;">**_Q:_**</span> Do you know what the last part of the read.csv2 command `skip = 3)[1,]` is doing?
+
+<span style="color: red;">**_Q:_**</span> What is the `gsub()` function doing?
+
+
+Now that we have the appropriate column names, lets modify the "query.acc.ver" column to separate it into 4 columns containing the Genome name, the Contig, the Coordinates and the strand
+
+### 4.5. Reformat queries entries
+
+```{r warning=FALSE}
+#Split query names into columns
+blast_res$query.acc.ver = gsub("16S_rRNA::", "", blast_res$query.acc.ver)
+blast_res = blast_res %>% separate(query.acc.ver, 
+                                   c("Genome", "contig", "coords", "strand"),
+                                   sep = "_contig_|:|\\(|\\)")
+
+head(blast_res)
+```
+
+<span style="color: red;">**_Q:_**</span> Do you understand what the `"_contig_|:|\\(|\\)"` within the `separate()` function is doing?
+
+
+### 4.6. Filter BLAST
+
+We will filter now our BLAST results by % sequence identity. We want those hits with a 100% of sequence identity, i.e., the Isolate-ASV exact match.
+
+```{r}
+filt_threshold = 100
+
+blast_filt = filter(blast_res, perc.identity >= filt_threshold)
+head(blast_filt)
+```
+
+<span style="color: red;">**_Q:_**</span> Can you count how many different ASVs matched at a 100% sequence identity our assembled genomes?
+
+### {.tabset .tabset-fade .tabset-pills}
+
+#### Hint
+
+The ASVs that matched at 100% are stored in the column `subject.acc.ver`. To access the information of a single column you can use the `$` with the following usage: data.frame$column. By using the function `unique()` with that column, will retrieve a list of the ASVs matching 100%. We can count the number of instances aplying the function `length()`. Try it out
+
+#### Solution
+
+```{r, eval=FALSE}
+length(unique(blast_filt$subject.acc.ver))
+```
+
+
+### 4.7. Add extra info
+
+It might be convenient to have the information of the taxonomic assignation of each of the genomes (ESL0XXX) that you obtained during SAGE I. Also, the number of 16S rRNA genes per genome. We will add this information manually to avoid having to upload another file.
+
+We will create a data frame with 3 columns: Genome, Copy.no.16S and Taxa
+
+```{r}
+genome_tax = data.frame("Genome"=c("ESL0961", "ESL0965", "ESL0967", "ESL0969",
+                                   "ESL0962", "ESL0970", "ESL0968_iso_01", 
+                                   "ESL0976", "ESL0964", "ESL0966", "ESL0968_iso_02", 
+                                   "ESL0971", "ESL0972", "ESL0974", "ESL0963"),
+                        "Copy.no.16S" = c("5","5","5","5","5","5","5","5",
+                                      "6", "6", "6", "6", "6", "6", "6"),
+                        "Taxa"=c("Lacticaseibacillus paracasei", 
+                                 "Lacticaseibacillus paracasei",
+                                 "Lacticaseibacillus paracasei", 
+                                 "Lacticaseibacillus paracasei",
+                                 "Lentilactobacillus parabuchneri", 
+                                 "Lentilactobacillus parabuchneri", 
+                                 "Lentilactobacillus parabuchneri",
+                                 "Lentilactobacillus hilgardii", 
+                                 "Liquorilactobacillus nagelii", 
+                                 "Liquorilactobacillus nagelii", 
+                                 "Liquorilactobacillus nagelii", 
+                                 "Liquorilactobacillus nagelii", 
+                                 "Liquorilactobacillus nagelii", 
+                                 "Liquorilactobacillus nagelii", 
+                                 "Liquorilactobacillus ghanensis"))
+head(genome_tax)
+```
+
+Now, lets add this information to the blast results per query genome
+
+```{r}
+blast_filt = left_join(blast_filt, genome_tax, by="Genome")
+head(blast_filt)
+```
+
+At the end of the dataframe, we have the taxa assignation to each genome and the number of 16S rRNA genes.
+
+<span style="color: red;">**_Q:_**</span> Do you know what the `left_join()` function is doing? How the two data.frames (blast_res and genome_tax) are being combined?
+
+### 4.8. Plot results
+
+Lets first explore the ASVs that matched at 100% of sequence identity per genome. 
+
+```{r}
+plot_match = ggplot(blast_filt, aes(y=paste0(Taxa," ",Genome))) +
+  geom_bar(aes(fill=subject.acc.ver)) + #ASVs will be represented as bars
+  geom_point(aes(x=-1.5, color=Taxa), size=2.5) + #points will represent the genomes taxa
+  geom_text(aes(x=-3.2), label=blast_filt$Copy.no.16S)+ #number of 16S rRNA copies per genome
+  ggtitle("Isolate-ASV matching")+
+  #Color scale for the Species based on assembled genomes
+  scale_color_manual(values=c("coral", 
+                                "bisque4",
+                                "lightgoldenrod2",
+                                "aquamarine3",
+                                "deepskyblue3"))+
+  #Color scale for the ASVs matching
+  scale_fill_d3("category20c")+
+  #ticks, breaks and labels of the x scale
+  scale_x_continuous(position = "top",
+                     breaks = c(-3.2,0,2,4,6,8,10,15,20),
+                     labels = c("16S rRNA \ncopies",0,2,4,6,8,10,15,20)
+                     ) +
+  #Title of X axis
+  xlab(paste0(filt_threshold, "% ASV match count")) + 
+  #titles for the legend.
+  labs(fill="ASV", color="Species (whole-genome)") +
+  #theme and theme options
+  theme_classic() + 
+  theme(axis.title.y = element_blank(), 
+        axis.line = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x.top = element_text(),
+        legend.key.size = unit(0.4, 'cm'),
+        legend.key.height = unit(0.4, 'cm'),
+        legend.key.width = unit(0.4, 'cm'))
+
+plot_match
+```
+
+This plot contains the ASVs matching per genome, but not the specific ASV matching each of the 16S rRNa copies. We can also represent this information:
+
+```{r}
+ggplot(blast_filt, aes(y=paste0(Taxa," ",Genome," ", coords))) +
+  geom_bar(aes(fill=subject.acc.ver)) +
+  geom_point(aes(x=-0.2, color=Genome), size=2, shape=15) +
+  scale_color_d3("category20")+
+  scale_fill_d3("category20c") +
+  scale_x_continuous(position = "top")+
+  xlab(paste0(filt_threshold, "% ASV match count")) + 
+  labs(fill="ASV", color="Genome") +
+  theme_classic() + 
+  theme(axis.title.y = element_blank(), 
+        axis.line = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.text.x.top = element_text(),
+        axis.text.y = element_text(size = 5),
+        legend.key.size = unit(0.3, 'cm'),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm'))
+```
+
+<span style="color: red;">**_Q:_**</span> Why most genomes have multiple ASVs matching?
+
+<span style="color: red;">**_Q:_**</span> How can you explain that *L. paracasei* genomes match 8 ASV while these genomes only contain 5 copies of the 16S  rRNA gene? and others like *L. nagelii* that have 6 copies of the 16S rRNA match with less? (hint, check the unfiltered Blast results)
+
+
+# 5. Abundance of Isolates
+
+Now that we have determined the ASVs that match our assembled genomes... are they among the most abundant members of the water kefir community? To check these and other questions, we need to get back to our *phyloseq* object. If you are using the same R session as in the previous tutorial, this is probably already loaded.
+
+Check your environment variables. Do you see a "ps" object? If not, load it again into R from your saved session:
+
+```{r}
+ps <- readRDS("PhyloSeq_Object.rds") #change by your path
+ps
+```
+
+<span style="color: red;">**_Q:_**</span> From the above output (executing directly the name of he phyloseq object), how many ASVs are there? how many samples? 
+
+Let's take a quick look at the first 5 colums and 5 rows of the otu_table of our phyloseq object:
+
+```{r}
+ps@otu_table[1:5,1:5]
+```
+
+<span style="color: red;">**_Q:_**</span> The otu_table contains raw sequence numbers or relative abundance?
+
+Let's convert this otu_table counts into relative abundance
+
+```{r}
+ps_ra = transform_sample_counts(ps, function(x) x/sum(x))
+ps_ra@otu_table[1:5,1:5]
+```
+
+Before filtering the phyloseq object, is always worth it to look globally at the distribution of ASVs throughout the samples. We will do this with the top 250 ASVs and only looking at the Phylum level.
+
+```{r}
+toptax = names(sort(taxa_sums(ps), decreasing=TRUE))[1:250]
+ps.toptax = transform_sample_counts(ps, function(x) {x/sum(x)})
+ps.toptax <- prune_taxa(toptax, ps.toptax)
+
+plot_bar(ps.toptax, x="id_sample", fill="Phylum") +
+  ylab("Relative abundance") + xlab("") +
+  ggtitle("Phylum level", "Top 250 ASVs") +
+  theme(legend.key.size = unit(0.3, 'cm'), #change legend key size
+        legend.key.height = unit(0.3, 'cm'), #change legend key height
+        legend.key.width = unit(0.3, 'cm'), #change legend key width
+        legend.title = element_blank(), #remove legend title font size
+        legend.text = element_text(size=7), #change legend text font size
+        legend.position = "top", #change legend position
+        axis.text.x = element_text(vjust = 0.5))
+```
+<span style="color: red;">**_Q:_**</span> Which phyla dominate the water kefir samples? Do you observe dramatic changes across samples?
+
+### 5.1 Filter the phyloseq object
+
+Once we have converted our phyloseq object to relative abundances (ps_ra), we are ready to filter it to inspect the relative abundance of the ASVs that match our assembled genomes. 
+
+First, we will retrieve a list of the exact ASV matches present in our filtered blast results, using the `unique()` function
+
+```{r}
+matching_asvs = unique(blast_filt$subject.acc.ver)
+matching_asvs
+```
+
+And now, filter the phyloseq object:
+
+```{r}
+ps_raASVs = prune_taxa(colnames(otu_table(ps_ra)) %in% matching_asvs, ps_ra)
+ps_raASVs
+```
+<span style="color: red;">**_Q:_**</span> What is the `colnames(otu_table(ps_ra)) %in% matching_asvs` doing?
+
+Looking at the phyloseq object, now we see that the number of taxa has been reduced to 10 (the 10 ASVs matching at 100%) while the number of samples, variables and taxonomic ranks remain the same.
+
+### 5.2 Add info to phyloseq object
+
+Let's add some more info to our phyloseq object. In this case, in the `tax_table()` I want to include the ASV names (contained in colnames(tax_table(ps_raASVs))) and the exact match based on our previous analyses.
+
+```{r}
+tax = as.data.frame(ps_raASVs@tax_table) #creates a copy of the tax table
+tax$ASV = rownames(tax)
+
+#Add tax again to the phyloseq object
+tax_table(ps_raASVs) = as.matrix(tax)
+```
+
+
+### 5.2 Represent relative abundance
+
+We are ready to represent the relative abundance of our matching ASVs.
+
+Often, it is interesting to compare the relative abundance at different taxonomic levels. In our case, let say at the species and the genus levels. In order to display both graphs together, the function `ggarrange()` from the **ggpubr** package is quite handy. For this, we first need to store every plot in a variable, and then display them with `ggarange`.
+
+```{r}
+#plot at the species level
+sp_plot=plot_bar(ps_raASVs, x="id_sample", fill="Species") +
+  ylab("Relative abundance") + xlab("") +
+  ggtitle("Species level", paste0(filt_threshold, "% ASV matching")) +
+  theme(legend.key.size = unit(0.3, 'cm'), #change legend key size
+        legend.key.height = unit(0.3, 'cm'), #change legend key height
+        legend.key.width = unit(0.3, 'cm'), #change legend key width
+        legend.title = element_blank(), #remove legend title font size
+        legend.text = element_text(size=7), #change legend text font size
+        legend.position = "top", #change legend position
+        axis.text.x = element_text(vjust = 0.5)) #vertically center x labels
+
+#plot at the genus level
+gen_plot=plot_bar(ps_raASVs, x="id_sample", fill="Genus") +
+  ylab("Relative abundance") + xlab("") +
+  ggtitle("Genus level", paste0(filt_threshold, "% ASV matching")) +
+  theme(legend.key.size = unit(0.3, 'cm'),
+        legend.key.height = unit(0.3, 'cm'),
+        legend.key.width = unit(0.3, 'cm'),
+        legend.title = element_blank(),
+        legend.text = element_text(size=7),legend.position = "top")
+
+ggarrange(sp_plot, #plot 1
+          gen_plot+theme(axis.title.y = element_blank()), #plot2 
+          #the + theme... removes the "relative abundance" of the second graph
+          ncol = 2, #fits the graph to two columns
+          align = "h",
+          labels = "AUTO") #puts the A, B... of the panels.
+```
+
+In this barplot, every horizontal black line separating the bar represents an ASV, colored according to the species or genera.
+
+<span style="color: red;">**_Q:_**</span> Do the genomes that we obtained during SAGE I represent a big part of the community?
+
+<span style="color: red;">**_Q:_**</span> How many of the matching ASVs are classified at the Species level? Do you observe the 5 different species identified in the collection of assembled genomes?
+
+<span style="color: red;">**_Q:_**</span> Check also the classification of the matching ASVs at the Genus level. What do you see? Do you see the 3 different genera identified in the collection of the assembled genomes?
+
+<span style="color: red;">**_Q:_**</span> How can you explain the differences observed in the taxonomy of ASVs at the genus and species levels compared with the taxonomy of the assembled genomes?
+
+Let's now see what happens coloring by ASV:
+
+```{r}
+plot_bar(ps_raASVs, x="id_sample", fill="ASV") +
+  ylab("Relative abundance") +
+  ggtitle("ASV level", paste0(filt_threshold, "% ASV matching")) +
+  theme(legend.key.size = unit(0.3, 'cm'),
+        legend.key.height = unit(0.3, 'cm'), 
+        legend.key.width = unit(0.3, 'cm'), 
+        legend.title = element_blank(), 
+        legend.text = element_text(size=7),
+        legend.position = "top") 
+```
+
+<span style="color: red;">**_Q:_**</span> Can you generate a plot with `ggarrange()` containing the three plots? at the ASV level, Species level and Genus level?
+
+Try it...
+
+```{r}
+# - your code...
+```
+
+
+```{r, echo=F, eval=F}
+ASV_plot = plot_bar(ps_raASVs, x="id_sample", fill="ASV") +
+  ylab("Relative abundance") +
+  ggtitle("ASV level", paste0(filt_threshold, "% ASV matching")) +
+  theme(legend.key.size = unit(0.3, 'cm'),
+        legend.key.height = unit(0.3, 'cm'), 
+        legend.key.width = unit(0.3, 'cm'), 
+        legend.title = element_blank(), 
+        legend.text = element_text(size=7),
+        legend.position = "top")
+
+ggarrange(ASV_plot,
+          sp_plot+theme(axis.title.y = element_blank()),
+          gen_plot+theme(axis.title.y = element_blank()), 
+          ncol = 3,
+          align = "h",
+          labels = "AUTO") #puts the A, B... of the panels.
+```
+
+
+
+
+### 5.3 Reclasify ASVs based on whole-genome
+
+As seen in the ASV-isolate matching plot, each species is defined by an specific set of ASVs, and  no ASV has have been assigned to different species; there are no ambiguous ASVs. Therefore, we can use the taxonimic classification of the genomes to reassign the ASVs. This will give us a better understanding of the distribution of our genomes in the kefir community.
+
+We will start by filtering again the blast results, in this case we are interested only in the equivalence Taxa (genomes) - ASV, knowing that the same taxa can match multiple ASVs.
+
+```{r}
+ASV_reclass = blast_filt %>% select(Taxa, "ASV"=subject.acc.ver) %>% unique()
+ASV_reclass
+```
+
+Now we will reassign the taxonomy of these ASVs in the tax_table of our phyloseq object
+
+```{r}
+tax2 = left_join(tax, ASV_reclass, by="ASV")
+rownames(tax2) = tax2$ASV
+
+#Add tax again to the phyloseq object
+tax_table(ps_raASVs) = as.matrix(tax2)
+ps_raASVs
+```
+
+And plot
+
+```{r}
+reclass_ASVs = plot_bar(ps_raASVs, x="id_sample", fill="Taxa") +
+  ylab("Relative abundance") +
+  ggtitle("Reclassified ASVs", paste0(filt_threshold, "% ASV matching")) +
+  scale_fill_manual(values=c("coral", 
+                                "bisque4",
+                                "lightgoldenrod2",
+                                "aquamarine3",
+                                "deepskyblue3"))
+reclass_ASVs
+```
+
+<span style="color: red;">**_Q:_**</span> What are the differences you observe with this plot with reassignation of ASVs taxonomy based on whole-genome information compared to the previous ones based on the taxonomic classification of ASVs agains the SILVA database? 
+
+<span style="color: red;">**_Q:_**</span> What is causing these differences?
+
+Finally, it seems that some of the changes in relative abundances might respond to different starting kefirs or different fruit used. We can simply separate the barplot in several facets based on the variables contained in our metadata.
+
+```{r}
+plot_bar(ps_raASVs, x="label", fill="Taxa") +
+  ylab("Relative abundance") +
+  ggtitle("Reclassified ASVs") +
+  scale_fill_manual(values=c("coral", 
+                                "bisque4",
+                                "lightgoldenrod2",
+                                "aquamarine3",
+                                "deepskyblue3"))+
+  facet_wrap(~inoculum+fruit, scales = "free_x", nrow = 1)
+```
+
+Using the "facet_wrap()" function within ggplot, you can actually explore different facets according to variables. For example, for the above plot we used inoculum and fruit variables to separate the plots. The variables are the columns included in the metadata, accessible in the phyloseq object through the function `sample_data(ps_raASVs)`. A list of all possible variables can be obtained executing `sample_variables(ps_raASVs)`. Modify the code above to include different combination of variables (or single variables) in the facet_wrap function to explore the data.
+
+
+# 6. Using other filtering thresholds
+
+We have performed these analyses based on exact matches; ASVs that matched 100% to the 16S rRNA sequences of our assembled genomes. Would we obtain different results if we use a 99% sequence identity instead?
+
+In the section **4.6. Filter BLAST** of this tutorial, you had to define the `filt_threshold`. Change it to 99% and repeat the rest.  
+
+<span style="color: red;">**_Q:_**</span> Can you create a composite figure showing the reclassification of ASVs at these two different thresholds (100% and 99%)? Hint: Every time you run the code with different thresholds, you can assign different names to the plots you want to combine, for example reclass_ASVs_100, reclass_ASVs_99... This will maintain the plots instead of removing them so you can combine them at the end using ggarrange.
+
+
+```{r, eval=FALSE, echo=F}
+ggarrange(plot_match_100+ggtitle("")+
+            theme(axis.title.x = element_text(size=8),legend.position = ""),
+          plot_match_99+theme(axis.title.y = element_blank(),
+                              axis.text.y=element_blank(),
+                              axis.title.x = element_text(size=8), legend.position = "")+
+            scale_x_continuous(position = "top", limits = c(0,20))+
+            ggtitle(""), 
+          plot_match_97+theme(axis.title.y = element_blank(), 
+                              axis.text.y=element_blank(),
+                              axis.title.x = element_text(size=8),
+                              legend.key.size = unit(0.3, 'cm'),
+                  legend.key.height = unit(0.3, 'cm'),
+                  legend.key.width = unit(0.3, 'cm'),
+                  legend.title = element_blank(),
+                  legend.text = element_text(size=7))+
+            ggtitle(""), 
+          ncol=3, widths = c(3,1,1), align = "h", labels = "AUTO",
+          common.legend = T, legend = "bottom")
+
+
+ggarrange(ASV_plot_100,sp_plot_100, gen_plot_100,
+          ASV_plot_99,sp_plot_99,gen_plot_99,
+          ASV_plot_97,sp_plot_97,gen_plot_97, common.legend = T)
+
+ggarrange(plot_ASV_97,
+          sp_plot_97+theme(axis.title.y = element_blank()),
+          gen_plot_97+theme(axis.title.y = element_blank()), 
+          ncol = 3,
+          align = "h",
+          labels = "AUTO")
+
+
+
+
+ggarrange(reclass_ASVs_100+theme(legend.position = "",
+                                 legend.key.size = unit(0.3, 'cm'),
+                  legend.key.height = unit(0.3, 'cm'),
+                  legend.key.width = unit(0.3, 'cm'),
+                  legend.title = element_blank(),
+                  legend.text = element_text(size=7)), 
+          reclass_ASVs_99+theme(axis.title.y = element_blank(), 
+                              axis.text.y=element_blank(),
+                              axis.title.x = element_text(size=8),
+                              legend.key.size = unit(0.3, 'cm'),
+                  legend.key.height = unit(0.3, 'cm'),
+                  legend.key.width = unit(0.3, 'cm'),
+                  legend.title = element_blank(),
+                  legend.text = element_text(size=7))
+          , common.legend = T)
+```
+
+
+
+
+
+

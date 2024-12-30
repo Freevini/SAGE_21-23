@@ -1,0 +1,659 @@
+---
+title: "5. Raw read analysis and filtering"
+author: "Malick Ndiaye; adpted from Vincent Somerville"
+date: "25th October 2022"
+# date: 29-09-2020
+# output:
+#   pdf_document:
+#      number_sections: true
+# urlcolor: Mahogany
+# linkcolor: Mahogany
+# latex_engine: texlive
+# header-includes:
+# geometry: margin=0.75in
+# toc: true
+output:
+  html_document:
+    number_sections: true
+    theme: readable
+    highlight: tango
+    # code_folding: hide
+    df_print: paged
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+editor_options: 
+  chunk_output_type: console
+---
+<!-- comment out for pdf compiling -->
+<style>
+    h1.title {
+        font-size: 40px;
+        font-family: Serif;
+        text-align: center;
+        font-weight: normal;
+        /* color: DarkRed; */
+    }
+    h1 {
+        font-size: 24px;
+        font-family: Serif;
+        font-weight: bold;
+        /* font-weight: bold; */
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    h2 {
+        font-size: 22px;
+        font-family: Serif;
+        font-weight: bold;
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    h3 {
+        font-size: 20px;
+        font-family: Serif;
+        font-weight: bold;
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    body .main-container {
+        /* max-width: 1000px; */
+        font-size: 18px;
+        font-family: Serif;
+    }
+</style>
+
+
+```{css echo=FALSE}
+/* To make hoverable links. (does not have to be called hint) Usage: */
+/* [Message to show on hover]{.hint} */
+.hint {
+  visibility: hidden;
+}
+
+.hint::before {
+  visibility: visible;
+  content: "Hint";
+  color: blue;
+}
+
+.hint:hover {
+  visibility: visible;
+  font-weight: bold;
+}
+
+.hint:hover::before {
+  display: none;
+}
+```
+
+
+```{r setup ,echo=FALSE}
+knitr::opts_chunk$set(message=FALSE, echo=FALSE, eval=FALSE,warning = FALSE)
+knitr::opts_chunk$set(engine.opts = list(bash = "-l"))
+```
+
+
+The ONT hands on part includes four tutorials, which follow the Illumina tutorials 1-4:
+
+5. Raw read analysis and filtering
+6. Genome assembly
+7. Genome polishing
+8. Genome annotation & start alignment
+
+
+![Figure 1: Assembly workflow](images/assembly_workflow_02.png)
+
+In the following, we will go through Tutorial 5 **Raw read analysis and filtering**. 
+
+# Before we start with ONT
+
+Before we start with ONT make sure you have completed the Illumina stats in the google.sheets [Here](https://docs.google.com/spreadsheets/d/17rel-XigS9XZC6VTc0b30PYGt2Xo29wCDRi6otIkqwU/edit#gid=56051021). 
+
+In order to have a rough estimate of the total genome assembly length and coverage have a look at your coverage plot in the *#results* channel on slack. 
+
+![In the example shown above, the assmebly has an approx. read coverage of 100x and the estimated genome size is about 2.5Mb](images/ESL0968_readcoverage.png)
+
+
+You will need that information later but it does not have to be completely precise. 
+
+# ONT Data preparation
+
+Now, we will start working with the Oxford Nanopore technology (ONT) data that was sequenced on a [GridION](https://nanoporetech.com/products/gridion).
+To find out more about ONT have look [here](https://nanoporetech.com/).
+
+## Download data
+
+This has already been done for you. Nevertheless for sake of completeness we will quickly elaborate on it. 
+
+Whenever we sequence we first need to download the data to our local machine or to a server. 
+This usually takes some time as the amount of data is large. Also the data will most likely be compacted to a smaller format to save space and time to store or transfer the data. Downloading and extracting files can be troublesome. So, it is always good practice to check if these two steps worked smoothly. 
+
+## Extracting files
+
+This has already been done for you. Nevertheless for sake of completeness we will quickly elaborate on it. 
+
+Large genomic files are often compressed with a format called "tar.gz". This is very similar to the common "zip" compression (.zip). However, it is more efficient for genomic data. These files can easily be extracted with the following command:
+
+```{bash echo=TRUE}
+cd ${personal_home_directory}/rawReads/
+tar -xzvf ${sample_name}.tar.gz -C .
+```
+
+To find out more about the "tar" function you can look at the help info of the tar command, or go [online](https://www.howtoforge.com/tutorial/linux-tar-command/)
+
+## ONT data transformation (Fast5 to fastq)
+
+This has already been done for you. Nevertheless for sake of completeness we will quickly elaborate on it. 
+
+Remember from the lecture of Alban Ramette that the signal received from ONT data is actually an electrical current that are associated with different nucleotides passign through the channel (see ![Figure 1: ONT data signal](images/one_raw_signal.png). From this we get fastq data which includes a corresponding quality value. 
+
+The first step when working with ONT data is that the raw read signal needs to be transformed to a fastq file. 
+There are many different basecallers and the technology is advancing rapidly. Base calling is a very computing-intensive step. So, we cannot repeat the base calling every time a new basecaller has been published. 
+For the the SAGE course,the base calling has already been performed with the default basecaller (Guppy 3.4) implemented on the GridION machine. So, we do not have to perform this step. We have already received the data as fastq files. 
+
+## Demultiplexing
+
+This has already been done for you. Nevertheless for sake of completeness we will quickly elaborate on it. 
+
+Just as for the Illumina sequencing technology, Oxford Nanopore Technologies also uses unique barcodes to label the different samples. Thereby, we can run multiple samples on one flowcell. The de-multiplexing is done during the base calling. Therefore, we do not have to do this step anymore. Also, all Indexes and barcodes have been removed. 
+
+## ONT data location
+
+Let's get starting with exploring your ONT data! 
+The  data is located in the common_files directory and labeled according to your ESL0* number.
+
+```{bash echo=TRUE}
+cd /scratch/jgianott/sage/SAGE2021_22/common_files/raw_ONT_data/
+```
+
+you can quickly check the file by looking at it:
+
+```{bash echo=TRUE}
+less <ESL0xxx>.fastq.gz
+```
+
+and check the number of reads:
+
+```{bash echo=TRUE}
+zgrep -c '@' <ESL0xxx>.fastq.gz
+```
+
+
+### Exercise: Copy your file {.tabset .tabset-fade .tabset-pills}
+
+#### Question {.unnumbered}
+
+Can you copy your ONT file to your personal location?
+
+
+#### Hints {.unnumbered}
+
+This is one option how the code could look like:
+(IMPORTANT: Change the username and sample name variable!):
+
+```{bash echo=TRUE}
+###================================================
+#Set your bash variables
+###================================================
+username=<username>
+personal_home_directory=/users/${username}/scratch_link/${username}/
+raw_data_directory=/scratch/jgianott/SAGE/SAGE2022_2023/common_files/raw_ONT_data
+sample_name=<ESL0xxx>
+
+###================================================
+#Cpying file
+###================================================
+mkdir -p ${personal_home_directory}/rawReads_ONT/
+cp ${raw_data_directory}/${sample_name}.fastq.gz ${personal_home_directory}/rawReads_ONT/${sample_name}.fastq.gz
+
+```
+
+
+#### Answer {.unnumbered}
+
+Obviously, this step can also be performed 'manually' by typing both commands one after the other on the command line. But, if you plan to analyze many ONT datasets in parallel, even a simple task like copying files should be written in a script so that it can be repeatedly applied.This is the final script:
+
+```{bash echo=TRUE}
+#!/bin/bash
+
+####--------------------------------------
+##SLURM options
+####--------------------------------------
+#SBATCH --job-name copying_fastq_ONT
+#SBATCH --account jgianott_sage
+#SBATCH --nodes 1
+#SBATCH --ntasks 1
+#SBATCH --cpus-per-task 2
+#SBATCH --mem 6G
+#SBATCH --time 1:00:00
+#SBATCH --output /users/mndiaye1/scratch_link/mndiaye1/logs/%x_%j.out
+#SBATCH --error /users/mndiaye1/scratch_link/mndiaye1/logs/%x_%j.err
+
+####--------------------------------------
+##preparation
+##set you bash variables in order to quickly call them in the script
+####--------------------------------------
+
+username=<username>
+personal_home_directory=/users/${username}/scratch_link/${username}/
+raw_data_directory=/scratch/jgianott/SAGE/SAGE2022_2023/common_files/raw_ONT_data
+sample_name=<ESL0xxx>
+
+####--------------------------------------
+#Copying file
+####--------------------------------------
+mkdir -p ${personal_home_directory}/rawReads_ONT/
+cp ${raw_data_directory}/${sample_name}.fastq.gz ${personal_home_directory}/rawReads_ONT/${sample_name}.fastq.gz
+
+```
+
+
+# Raw read analysis
+
+### Exercise: Checking files using Bash {.tabset .tabset-fade .tabset-pills}
+
+#### Question {.unnumbered}
+
+What information can we use to assess the quality of the raw read data?
+
+#### Hints {.unnumbered}
+
+What is contained in the second and fourth line of the fastq file.
+
+#### Answer {.unnumbered}
+
+1. Read length: the longer the better (this is different from Illumina data where all reads of a given run have the same lenght)
+2. Read quality: the phred quality score of the fastq file give us an idea about the read quality. [Here](https://en.wikipedia.org/wiki/Phred_quality_score) you find more information on the phred quality score. 
+
+## Raw read length
+
+With ONT data we are primarily interested in the read length. Read quality is only secondary, especially as we have high quality Illumina data which we will use later to correct the errors in the ONT data. Hence, we first want to check the distribution of the sequence length of our ONT reads. 
+
+
+### Exercise: Read length extraction {.tabset .tabset-fade .tabset-pills}
+
+#### Question {.unnumbered}
+
+What is the distribution of the raw reads? In order to analysis this we will extract all the read length and then move to R to evaluate the read length in the next chapter. 
+
+We have only quickly talked about "awk" in the previous introduction. Awk is a very versatile bash function and you will find lots of information on the internet (e.g. [here](https://bioinformatics.cvr.ac.uk/essential-awk-commands-for-next-generation-sequence-analysis/)).
+Have a look at the following lines of code and discuss within your group to make sure you understand what it is going (see hints if you need help) and write a script to do the calculations of your raw read data. 
+
+```{bash echo=TRUE}
+mkdir -p ${personal_home_directory}/Oxford_Nanopore_analysis/log/
+
+##each read length 
+less ${personal_home_directory}/rawReads_ONT/${sample_name}.fastq.gz | awk '{if(NR%4==2) print length($1)}' > ${personal_home_directory}/Oxford_Nanopore_analysis/log/${sample_name}_raw_readLength.txt
+
+```
+
+#### Hints {.unnumbered}
+
+
+
+*if(NR%4==2)* if the file can be split into blocks of 4 then take only the second lines. the second line in a fastq contains the sequence information. 
+
+*print length($1)* means print for every read the length of it.
+
+
+```{bash echo=TRUE}
+mkdir -p ${personal_home_directory}/Oxford_Nanopore_analysis/log/
+
+##each read length 
+less ${personal_home_directory}/rawReads_ONT/${sample_name}.fastq.gz | awk '{if(NR%4==2) print length($1)}' > ${personal_home_directory}/Oxford_Nanopore_analysis/log/${sample_name}_raw_readLength.txt
+```
+
+Now that you have understood the commands, you can write a SLURM script to run the commands on Wally. 
+
+#### Answer {.unnumbered}
+
+This is how your script could look like:
+
+```{bash echo=TRUE}
+#!/bin/bash
+
+####--------------------------------------
+##SLURM options
+####--------------------------------------
+#SBATCH --job-name readLenth_rawReads
+#SBATCH --account jgianott_sage
+#SBATCH --nodes 1
+#SBATCH --ntasks 1
+#SBATCH --cpus-per-task 8
+#SBATCH --mem 10G
+#SBATCH --time 1:00:00
+#SBATCH --output /users/<username>/scratch_link/<username>/logs/%x_%j.out
+#SBATCH --error /users/<username>/scratch_link/<username>/logs/%x_%j.err
+
+####--------------------------------------
+##preparation
+##set you bash variables in order to quickly call them in the script
+####--------------------------------------
+
+username=<username>
+personal_home_directory=/users/${username}/scratch_link/${username}
+raw_data_directory=/scratch/jgianott/sage/SAGE2021_22/common_files/raw_ONT_data
+sample_name=<ESL0xxx>
+
+####--------------------------------------
+##modules
+####--------------------------------------
+
+###NONE Needed!!
+
+####--------------------------------------
+##Calculate raw read statistics
+echo -e "1. First calculate the read length"
+####--------------------------------------
+
+mkdir -p ${personal_home_directory}/Oxford_Nanopore_analysis/log/
+
+less ${personal_home_directory}/rawReads_ONT/${sample_name}.fastq.gz | awk '{if(NR%4==2) print length($1)}' > ${personal_home_directory}/Oxford_Nanopore_analysis/log/${sample_name}_raw_readLength.txt
+
+```
+
+## Raw read evaluation
+
+Have a quick look at the \${sample_name}_raw_readLength.txt file to make sure it is what you want. In a next step, we want to move the files to our computer in order to analyse the read length distribution in R. 
+Remember this would look something like this (don't forget to change your username and location):
+
+```{bash echo=TRUE}
+scp mndiaye1@curnagl.dcsr.unil.ch:/users/mndiaye1/scratch_link/mndiaye1/Oxford_Nanopore_analysis/log/*readLength.txt /home/mam/SAGE_test/log/
+```
+
+Next we will read the data into R and make a read distribution plot. Write the following code as a new R script in R studio. Save the R script as ONT_readLength_distribution.R
+
+```{r  echo=TRUE, eval=TRUE} 
+library(tidyverse)
+library(ggplot2)
+rawdata_readLength <- read_csv("/home/mam/SAGE_test/log/ESL0976_raw_readLength.txt",  col_names = "read_length") %>% arrange(., read_length)
+```
+Now we have read the data into R we can answer the following questions:
+
+### Exercise: Check read information I {.tabset .tabset-fade .tabset-pills}
+
+#### Question {.unnumbered}
+
+1. How many reads do you have?
+2. What is the mean read length?
+3. How long is the longest read?
+
+When you have collected this information you can add it into the google sheets [Here](https://docs.google.com/spreadsheets/d/17rel-XigS9XZC6VTc0b30PYGt2Xo29wCDRi6otIkqwU/edit#gid=56051021). Also discuss in your group where the differences between the samples might come from. 
+
+#### Hints {.unnumbered}
+
+1. look at the nrow() function
+2. look at the mean() function
+3. look at the max() function
+
+#### Answer {.unnumbered}
+
+```{r  echo=TRUE, eval=TRUE} 
+number_reads <- nrow(rawdata_readLength)
+mean_read <- round(mean(rawdata_readLength$read_length),digits = 0)
+longest_read <- max(rawdata_readLength$read_length)
+
+print(paste0("The sample has ",number_reads, " reads. The mean read length is ",mean_read, " and the longest read is ",longest_read))
+```
+
+## Read Distribution
+
+In order to get an understanding of the read distribution, we can try to answer the following questions:
+
+## Exercise: Check read information II {.tabset .tabset-fade .tabset-pills}
+
+### Question {.unnumbered}
+
+1. Can you make a read distribution histogram? Can you indicate the size of the rRNA operon (~5kb repeat) with a thin line in the plot?
+2. Supplement: What is the total number of sequenced bases? What means the N50 of all ONT reads?
+3. Supplement: Can you make a reverse cumulative read sum plot? Can you illustrate the N50? Although the N50 is mainly used to assess the degree of fragmentation of an assembly, we can apply the same logic to get an impression of the overall length distribution of the ONT raw reads. 
+
+### Hints {.unnumbered}
+
+1. look at the ggplot and the geom_histogram() function
+2. look at the cumsum() function
+3. look at the ggplot, the geom_point() and the geom_hline function
+
+### Answer {.unnumbered}
+
+```{r  echo=TRUE,eval=TRUE} 
+#install the packwork package if necessary
+#install.packages("patchwork")
+library(patchwork)
+##-------------------------1. Histogram
+
+histoPlot_01 <- ggplot(rawdata_readLength,aes(x=read_length))+
+    geom_histogram(binwidth = 500)+theme_classic()+
+    geom_vline(xintercept = 5000,color="blue")+
+    lims(x=c(-250,longest_read))
+histoPlot_01
+
+##-------------------------2. Here we calculate the which amount half of the sequencing output is 
+rawdata_readLength$Cumsum_forward <- cumsum(rawdata_readLength$read_length)
+rawdata_readLength$Cumsum_reverse <- max(rawdata_readLength$Cumsum_forward) - cumsum(rawdata_readLength$read_length)
+
+Half_sequencing_output <- max(rawdata_readLength$Cumsum_forward)/2
+
+print(paste0("The total number of sequenced bases is ",max(rawdata_readLength$Cumsum_forward)," and half of that is ",Half_sequencing_output))
+
+##-------------------------3. Here we plot the histogram and the reverse cummulative summary
+
+cumSumPlot_01 <- ggplot(rawdata_readLength,aes(x=read_length,y=Cumsum_reverse))+
+    geom_point()+theme_classic()+
+    geom_vline(xintercept = 5000,color="blue")+
+    geom_hline(yintercept = Half_sequencing_output,color="red")+
+    labs(y="Reverse Cummulative read sum")+
+    lims(x=c(-250,longest_read))+
+    theme(axis.title.x = element_blank(),axis.text.x = element_blank())
+
+cumSumPlot_01+histoPlot_01+plot_layout(nrow=2,heights = c(1,2))
+```
+
+
+## Read filtering calculations
+
+Generally, there are three important features to consider when filtering ONT data:
+
+1. The read length (the longer the better). Our reads should be long enough to span the longest repeats in our genome. While we don't know how long the longest repeats are in a given genome (can be 100bp or 100'000bp), most bacterial genomes carry several identical copies (so repeats) of the rRNA operons (which have a length of up to 7kb). So, if we have reads of an average length of >7kb we have excellent data which will allow us to fully reconstruct most bacterial genomes.  
+2. Total sequenced bases: We need sufficient sequencing data to cover the entire genome. While there are no sequencing biases known for ONT, it is recommended to have at least a 50x mean read coverage (i.e. sum of the length of all filtered reads equals 50x the estimated genome size). However, keep in mind that the assembly algorithms don't work better with more data. Currently it is assumed that the algorithm we use works best with around 50-100x coverage. 
+3. The read quality: The Q-score of the fastq file give us an idea what quality the reads are. 
+
+In the following we will try to find the optimal amount and quality of our raw reads to use for the genome assembly. 
+
+## Exercise: Read filtering calculations {.tabset .tabset-fade .tabset-pills}
+
+### Question {.unnumbered}
+
+1. Recap: How many bases have you sequenced?
+2. Recap: How large do you expect your genome to be (check Illumina assembly)?
+3. If we want to get 50x Coverage, how many bases do we want to keep?
+
+### Hints {.unnumbered}
+
+1. Look at the results of the previous exercises of this tutorial. 
+2. Count the number of bases of your Illumina assembly
+3. Genome size * expected genome coverage
+
+### Answer {.unnumbered}
+
+```{r  echo=TRUE,eval=TRUE} 
+##-------------------------1. total sequenced bases
+
+print(paste0("The total number of sequenced bases is ",max(rawdata_readLength$Cumsum_forward)))
+
+##-------------------------3. Here we calculate the which amount half of the sequencing output is 
+sample_name="ESL0976"
+genome_size=2000000
+expected_genome_coverage=50
+bases_needed <- genome_size*expected_genome_coverage
+
+print(paste0("The total number of bases needed for ",expected_genome_coverage,"x coverage of a ",genome_size," bp genome are  ",bases_needed))
+
+##-------------------------3. Here we plot the histogram and the reverse cummulative summary
+
+cumSumPlot_01 <- ggplot(rawdata_readLength,aes(x=read_length,y=Cumsum_reverse))+
+    geom_point()+theme_classic()+
+    geom_vline(xintercept = 5000,color="blue")+
+    geom_hline(yintercept = bases_needed,color="red")+
+    labs(y="Reverse Cummulative read sum",title = sample_name)+
+    lims(x=c(0,longest_read))+
+    theme(axis.title.x = element_blank(),axis.text.x = element_blank())
+
+cumSumPlot_01+histoPlot_01+plot_layout(nrow=2,heights = c(1,2))
+```
+
+
+## What can we see?
+
+When you have created this graph we will meet in plenum to discuss the data.
+In order to have a good discussion, can you post your plots to the #results channel. 
+
+In the meantime here are some questions to think about?
+
+- What do you see? 
+- Does this make sense?
+- Is there a problem? 
+- if there is a problem: Why could it be like this?
+- if there is a problem: What is the solution?
+
+Try to find answers, fill the [google.sheets](https://docs.google.com/spreadsheets/d/17rel-XigS9XZC6VTc0b30PYGt2Xo29wCDRi6otIkqwU/edit#gid=56051021) and discuss in the group. 
+
+# Read filtering
+
+We can now start filtering the ONT data. We do this with the [filtlong](https://github.com/rrwick/Filtlong) tool.
+We can use a number of different parameters with filtlong. Check them out!
+
+```{bash echo=TRUE}
+module load gcc
+module load filtlong
+
+filtlong --help
+```
+
+The parameters of interest are:
+
+```{bash echo=TRUE}
+filtlong -t <keep only the best reads up to this many total bases> \
+      --min_length <minimum length threshold> \
+      --min_mean_q <minimum mean quality threshold> \
+      --length_weight <weight given to the length score> 
+```
+
+## Exercise: Read filtering parameters {.tabset .tabset-fade .tabset-pills}
+
+### Question {.unnumbered}
+
+1. We have mainly been looking into the minimum read length and the number of sequenced bases to consider for the assembly. We can also filter based on the read quality. Here, we will set a minimum phred score quality of the reads at 10. What error probability does that correspond to? Have a look [here](https://en.wikipedia.org/wiki/Phred_quality_score) if you need help. 
+2. We prefer long reads over short reads of good quality. Hence, we will set more weight (10 times more) on longer reads than high quality reads. Do you have an idea why? 
+3. Based on the previous exercise (Read filtering calculations), which settings would be appropriate for the two remaining parameters (-t & --min_length)?
+
+### Answer {.unnumbered}
+
+1. $10^{(-PhredQualityScore)/10}=10^{(-10)/10}=0.9$=90%
+2. The main aim of using the ONT data is to have as long reads as possible to bridge all repeats and reconstruct a complete genome without gaps. Only in a next step we will polish the genome with the higher quality data (=Illumina trimmed reads). 
+3. See in the following code chunk some rough estimates and if necessary adjust them according to your calculations. 
+You can also use this chunk in the script and call the bash variables later. 
+
+```{bash echo=TRUE}
+target_bases=200000000 #variable for parameter -t"
+MINIMUM_read_LENGTH=5000 #variable for parameter --min_length"
+min_mean_q_CHANGED=10 #variable for parameter --min_mean_q"
+length_weight=10 #variable for parameter --length_weight"
+```
+
+If you have very short read length than adjust the variables accordingly. E.g. like this:
+
+```{bash echo=TRUE}
+target_bases=200000000 #variable for parameter -t"
+MINIMUM_read_LENGTH=1000 #variable for parameter --min_length"
+min_mean_q_CHANGED=10 #variable for parameter --min_mean_q"
+length_weight=10 #variable for parameter --length_weight"
+```
+
+### Answer {.unnumbered}
+
+Here is how the full script could look like:
+
+```{bash echo=TRUE}
+#!/bin/bash
+
+####--------------------------------------
+##SLURM options
+####--------------------------------------
+#SBATCH --job-name readFiltering
+#SBATCH --account jgianott_sage
+#SBATCH --nodes 1
+#SBATCH --ntasks 1
+#SBATCH --cpus-per-task 8
+#SBATCH --mem 8G
+#SBATCH --time 2:00:00
+#SBATCH --output /users/mndiaye1/scratch_link/mndiaye1/logs/%x_%j.out
+#SBATCH --error /users/mndiaye1/scratch_link/mndiaye1/logs/%x_%j.err
+
+####--------------------------------------
+##preparation
+##set you bash variables in order to quickly call them in the script
+####--------------------------------------
+
+username=<username>
+personal_home_directory=/users/${username}/scratch_link/${username}
+sample_name=<ESL0xxx>
+
+
+##!!!!!!!here you can adjust the parameters
+##see how these bash variables are used in the script further bellow
+MINIMUM_read_LENGTH=1000
+min_mean_q=10
+length_weight=10
+target_bases=400000000
+
+####--------------------------------------
+##modules
+####--------------------------------------
+
+source /dcsrsoft/spack/bin/setup_dcsrsoft
+module load gcc
+module load filtlong
+
+
+####--------------------------------------
+##Filter reads
+echo -e "1. First we filter the reads"
+####--------------------------------------
+
+mkdir -p ${personal_home_directory}/01_data/After_filtlong_trimming/
+
+filtlong --min_length ${MINIMUM_read_LENGTH} \
+        --min_mean_q ${min_mean_q} \
+        --length_weight ${length_weight} \
+        --target_bases ${target_bases}  \
+        ${personal_home_directory}/rawReads_ONT/${sample_name}.fastq.gz  > \
+       ${personal_home_directory}/rawReads_ONT/${sample_name}_filtered.fastq
+
+less ${personal_home_directory}/rawReads_ONT/${sample_name}_filtered.fastq | awk '{if(NR%4==2) print length($1)}' > ${personal_home_directory}/Oxford_Nanopore_analysis/log/${sample_name}_filtered_readLength.txt
+```
+
+## Read filtering control
+
+Now the reads should be filtered. Check the output files:
+
+```{bash echo=TRUE}
+##check your error file
+less /users/mndiaye1/scratch_link/mndiaye1/logs/%x_%j.err
+##check your output file
+less /users/mndiaye1/scratch_link/mndiaye1/logs/%x_%j.out
+
+```
+
+and compare the number of reads of the raw read file and the filtered file:
+
+```{bash echo=TRUE}
+zgrep -c '@' <ESL0xxx>.fastq.gz
+
+grep -c '@' <ESL0xxx>_filtered.fastq
+```
+
+So far, we assessed the quality of our data, and filtered the reads based on sequence length, sequence quality, and sequencing depth. We are now ready to *de novo* assemble the genome based on the filtered ONT reads. Let's move to Tutorial 6 for this task! 
+

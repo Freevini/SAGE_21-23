@@ -1,0 +1,518 @@
+---
+title: "16S rRNA analysis - DADA2"
+date: "April 01 2022"
+# date: 29-09-2020
+# output:
+#   pdf_document:
+#      number_sections: true
+# urlcolor: Mahogany
+# linkcolor: Mahogany
+# latex_engine: texlive
+# header-includes:
+# geometry: margin=0.75in
+# toc: true
+output:
+  html_document:
+    number_sections: true
+    theme: readable
+    highlight: tango
+    # code_folding: hide
+    df_print: paged
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+editor_options: 
+  chunk_output_type: console
+---
+<!-- comment out for pdf compiling -->
+<style>
+    h1.title {
+        font-size: 40px;
+        font-family: Serif;
+        text-align: center;
+        font-weight: normal;
+        /* color: DarkRed; */
+    }
+    h1 {
+        font-size: 24px;
+        font-family: Serif;
+        font-weight: bold;
+        /* font-weight: bold; */
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    h2 {
+        font-size: 22px;
+        font-family: Serif;
+        font-weight: bold;
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    h3 {
+        font-size: 20px;
+        font-family: Serif;
+        font-weight: bold;
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    body .main-container {
+        /* max-width: 1000px; */
+        font-size: 18px;
+        font-family: Serif;
+    }
+</style>
+
+
+```{css echo=FALSE}
+/* To make hoverable links. (does not have to be called hint) Usage: */
+/* [Message to show on hover]{.hint} */
+.hint {
+  visibility: hidden;
+}
+
+.hint::before {
+  visibility: visible;
+  content: "Hint";
+  color: blue;
+}
+
+.hint:hover {
+  visibility: visible;
+  font-weight: bold;
+}
+
+.hint:hover::before {
+  display: none;
+}
+```
+
+
+```{r setup ,echo=FALSE}
+knitr::opts_chunk$set(message=FALSE, echo=FALSE, eval=FALSE,warning = FALSE)
+knitr::opts_chunk$set(engine.opts = list(bash = "-l"))
+```
+
+This is part 2 of the tutorial that will guide you through the different steps needed to carry out the 16S rRNA gene amplicon sequencing analysis of the water kefir samples that you have passaged at home.
+
+Please take your time to *carefully* read all instructions and to prepare the scripts.
+
+This part of the tutorial will be executed on your *local machine* using R markdown and R studio. Some of the steps are computationally expensive and may take a few minutes depending on your computer. Make sure you liberated as much memory as possible by shutting down other software during the analysis.
+
+
+# Define a working directory on your local machine
+
+We will first set a working directory. In R-markdown, the working directory needs to be assigned within a "setup" chunk, or it will only work within the individual chunks in which it was set.
+
+Decide where you want to work on your local computer and create a corresponding folder, e.g. `/Dada2_SAGE_2022`. 
+```{bash echo=TRUE}
+#mkdir of sub-directory and secure copy command scp
+mkdir Dada2_SAGE_2022
+```
+This is also the place where you can save your .Rmd files and everything related to the project.
+
+In your R markdown template file, you will find the following command, which will set the working directory to the main directory created above. Replace the path with your path and execute the commands in R. This is the code chunk in our R markdown:
+```{r setup }
+#set path in plain
+PathToWD <- ("<path>/<to>/<your_directory>/Dada2_SAGE_2022")
+knitr::opts_knit$set(root.dir = normalizePath(PathToWD)) 
+```
+
+
+```{r echo=TRUE }
+#set path in plain
+PathToWD <- ("<path>/<to>/<your_directory>/Dada2_SAGE_2022")
+#PathToWD <- '.'
+knitr::opts_knit$set(root.dir = normalizePath(PathToWD)) 
+```
+
+
+# Transferring data from the cluster to your local machine
+Let's transfer the files from the cluster to a subfolder of your working directory. Be careful, this is a bash command that needs to be executed from your working directory on your local machine.
+```{bash echo=TRUE}
+#mkdir of sub-directory and secure copy command scp
+mkdir 01_16SrRNA_data_trimmed_cut
+scp <username>@curnagl.dcsr.unil.ch:/scratch/jgianott/sage/SAGE2021_22/<username>/03_CUTADAPT/*paired_cut.fastq.gz ./01_16SrRNA_data_trimmed_cut
+```
+
+# Installing and loading packages
+Let's go back to working with R. We first need to install a couple of packages that we will need to analyze the 16S rRNA data. May be you have done that already, as indicated in our email sent a few weeks ago. If yes, just see if you can load them by executing everything after # Load libraries. If you run into issues with the Dada2 pipeline, consider updating R to the newest version and re-install all packages.
+
+
+```{r echo=TRUE}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+install.packages("ggplot2") # to do plots
+BiocManager::install("dada2") # dada2 pipeline
+BiocManager::install("ShortRead")
+BiocManager::install("Biostrings")
+BiocManager::install("biomformat")
+BiocManager::install("microbiome")
+install.packages("vegan") # ecological diversity analysis
+install.packages("dplyr") # table manipulation
+BiocManager::install("phyloseq") # phyloseq object manipulation
+install.packages("genefilter") # to use the filterfun function
+
+#install.packages("reshape2") # data manipulation package
+#install.packages("Biostrings")
+#install.packages("microbiome")
+#install.packages("DECIPHER") # Make alignment with DECIPHER...
+#install.packages("phangorn") # ...then build tree with phangorn
+#install.packages("decontam")
+
+# Load libraries
+library(ggplot2)
+library(dada2)
+library(ShortRead)
+library(Biostrings)
+library(biomformat)
+library(microbiome)
+```
+
+# Get files path and sample names
+
+```{r echo=TRUE}
+setwd("<path>/<to>/<your_directory>/Dada2_SAGE_2022")
+PathRaw <-paste(PathToWD, "01_16SrRNA_data_trimmed_cut", sep="/")
+# List all the files in the directory
+list.files(PathRaw)
+# Forward and reverse fastq filenames have format: SAMPLENAME_1_paired_cut.fq.gz and SAMPLENAME_2_paired_cut.fq.gz
+FWDfiles <- sort(list.files(PathRaw, pattern="_1_paired_cut.fq.gz", full.names = TRUE))
+REVfiles <- sort(list.files(PathRaw, pattern="_2_paired_cut.fq.gz", full.names = TRUE))
+
+# Extract sample names, assuming filenames have format: SAMPLENAME_*.fq*
+sample.names <- sapply(strsplit(basename(FWDfiles), "_"), `[`, 1)
+sample.names
+```
+
+# Quality scores
+
+We can (again) inspect the read quality profiles. 
+What will you see on these plots ? 
+
+The quality score (log10 of the base-calling error probability) for each base of the reads. The *median quality* score is the green line. Quartile quality scores are the orange lines. 
+The red line (bottom) is the proportion of reads that reach the position (length). 
+
+
+```{r echo=TRUE}
+dev.new() #returns the return value of the device opened
+sys_str <- Sys.time()
+# We have 18 samples; you can make the 18 plots
+
+# Quality scores of R1 reads
+plotQualityProfile(FWDfiles[5:8]) 
+
+# Quality scores of R2 reads
+plotQualityProfile(REVfiles[5:8])
+
+# Quality scores for aggregated files
+plotQualityProfile(FWDfiles[1:18], n = 1e+06, aggregate=TRUE) 
+plotQualityProfile(REVfiles[1:18], n = 1e+06, aggregate=TRUE) 
+
+sys_str[2] <- Sys.time()
+sys_str
+rm(sys_str)
+```
+
+
+# Trim the data
+
+Here, we will carry out another trimming step. The trimming carried out with Trimmomatic is a generic step that can be applied to any Illumina dataset. This additional trimming is specific for 16S rRNA amplicon datasets that will be analyzed on the ASV level. The trimming should be adapted to the data-type and quality of the reads.
+
+We filter based on several parameters : 
+  - `maxN`: the number of Ns we allow in the reads. Since we are working with ASVs, the number of Ns should be 0.
+  - `maxEE`: This parameter sets the maximum number of 'expected errors' allowed in each read.
+  - `truncQ`: Truncate reads at the first instance of a quality score less than or equal to truncQ.
+  - `truncLen`: Truncates the reads after _truncLen_ bases (if some reads are shorter, they are discarded). The trunc length must be large enough to maintain an overlap between forward and reverse reads of at least `20 + biological.length.variation` nucleotides.
+  
+As you can in the R code below, we can create new folders directly from within R.
+
+```{r echo=TRUE}
+# Place filtered files in filtered/ subdirectory
+path_trim<-paste(PathToWD, "02_16SrRNA_data_trimmed_cut_trimmed", sep="/")
+filtFWD <- file.path(PathToWD, "02_16SrRNA_data_trimmed_cut_trimmed", paste0(sample.names, "_F_paired_cut_trimmed.fq.gz"))
+filtREV <- file.path(PathToWD, "02_16SrRNA_data_trimmed_cut_trimmed", paste0(sample.names, "_R_paired_cut_trimmed.fq.gz"))
+names(filtFWD) <- sample.names
+names(filtREV) <- sample.names
+
+sys_str <- Sys.time()
+out <- filterAndTrim(FWDfiles, filtFWD, 
+                     REVfiles, filtREV, 
+                     truncLen=c(155,125), # There is around 84bp overlap
+                     maxN=0, 
+                     maxEE=c(2,2), 
+                     truncQ=9, 
+                     rm.phix=TRUE,
+                     compress=TRUE, multithread=TRUE) 
+# On Windows set multithread=FALSE
+# All parameters but truncLen are default DADA2 params
+
+# Check this all makes sense
+plotQualityProfile(filtFWD[1:18], n = 1e+06, aggregate=TRUE) 
+plotQualityProfile(filtREV[1:18], n = 1e+06, aggregate=TRUE) 
+
+sys_str[2] <- Sys.time()
+sys_str
+rm(sys_str)
+```
+
+
+# Learn the error rates
+
+The DADA2 algorithm makes use of a parametric error model (err) and every amplicon dataset has a different set of error rates. The learnErrors method learns this error model from the data, by alternating estimation of the error rates and inference of sample composition until they converge on a jointly consistent solution. As in many machine-learning problems, the algorithm must begin with an initial guess, for which the maximum possible error rates in this data are used (the error rates if only the most abundant sequence is correct and all the rest are errors).
+This is important because we want to cluster sequences into ASVs (which are exact sequence variants). So, every nucleotide polymorphism in the sequence data would result in an additional ASV. But, some of these variants may be sequencing errors. To not inflate the number of rare ASVs being detected (due to such sequencing errors), the probability of transitions and transversion being real or due to an error in function of the read quality is assessed. Important: Each sequencing run has its specific error rates (hence we cannot combine data from two different runs)
+
+- black dots : observed error rates for each consensus quality score.
+- black lines : estimates error rate after convergence of the algorithm
+- red line : error rates expected under the nominal definition of the Q-score
+
+! Parameter learning is *computationally intensive*, so by default the learnErrors function uses only a subset of the data (the first 100M bases = 1e8). If you are working with a large dataset and the plotted error model does not look like a good fit, you can try increasing the nbases parameter to see if the fit improves !
+
+`nbases=2e8` as we have -> 309'595'295 total bases
+
+```{r echo=TRUE}
+# Took 20 min (with other process running )
+# Took 7 minutes with no other process running
+sys_str <- Sys.time()
+errF <- learnErrors(filtFWD, randomize=TRUE, nbases=2e8, multithread=TRUE) # here we need to increase nbases to sample more than only 11 samples, default is 1e8
+# 309'595'295 total bases in 1'997'389 reads from 33 samples will be used for learning the error rates.
+errR <- learnErrors(filtREV, randomize=TRUE, nbases=2e8, multithread=TRUE) # here we need to increase nbases to sample more than only 11 samples, default is 1e8
+# 265'556'875 total bases in 2'124'455 reads from 35 samples will be used for learning the error rates.
+plotErrors(errF, nominalQ=TRUE)
+plotErrors(errR, nominalQ=TRUE)
+
+# In the plots, the black line is the error model, the dots are the actual errors
+sys_str[2] <- Sys.time()
+sys_str
+rm(sys_str)
+```
+
+The error rates for each possible transition (A→C, A→G, …) are shown. Points are the observed error rates for each consensus quality score. The black line shows the estimated error rates after convergence of the machine-learning algorithm. The red line shows the error rates expected under the nominal definition of the Q-score. Here the estimated error rates (black line) are a good fit to the observed rates (points), and the error rates drop with increased quality as expected. Everything looks reasonable and we proceed with confidence.
+
+We will also dereplicate the data with `derepFastq` dereplication step : all identical sequences are combined in "unique sequences" that is associated with "abundance" (number of reads that share this unique sequence)
+
+```{r echo=TRUE}
+derepFWD <- derepFastq(filtFWD)
+derepREV <- derepFastq(filtREV)
+sam.names <- sapply(strsplit(basename(filtFWD),"_F_"),`[`,1)
+names(derepFWD) <- sam.names
+names(derepREV) <- sam.names
+```
+
+# Sample inference
+
+The DADA2 algorithm divides the reads in amplicon sequence variants ASVs
+
+With the error rates (errF and errR), the  DADA2 method corrects substitutions and indels errors in the reads.
+
+How many variants (ASVs) are inferred ? 
+```{r echo=TRUE}
+sys_str <- Sys.time()
+dadaFs <- dada(derepFWD, err=errF, multithread=TRUE)
+dadaRs <- dada(derepREV, err=errR, multithread=TRUE) 
+sys_str[2] <- Sys.time()
+sys_str
+rm(sys_str)
+
+dadaFs[[1]]
+dadaRs[[1]]
+```
+
+# Merging paired reads
+
+Merging reads aims to obtain the full denoised sequences. The merged sequences are outputted if the overlap is at least of 12 *identical* nucleotides.
+! Most of your reads should successfully merge. If that is not the case upstream parameters may need to be revisited: Did you trim away the overlap between your reads? !
+
+The `mergers` object contains a list of data.frames. Each data.frame contains the merged `$sequence`, `$abundance`, the indices of FWD and REV sequences variant that were merged. Paired-reads that did not exactly match were removed by the `mergePairs` function.
+
+```{r echo=TRUE}
+mergers <- mergePairs(dadaFs, derepFWD, dadaRs, derepREV, verbose=TRUE, trimOverhang=TRUE)
+# Inspect the merger data.frame from the first sample
+head(mergers[[1]])
+```
+
+# Construct the sequence table
+
+After merging the Fwd and Rev reads, we expect sequences in the range of [250:256] bp (length of the V4 region). However, some sequences may be shorter or longer than expected due to wrong merging. This needs to be checked. 
+
+```{r echo=TRUE}
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+
+# Inspect distribution of sequence lengths
+table(nchar(getSequences(seqtab)))
+```
+
+The sequence table is a matrix with rows corresponding to (and named by) the samples, and columns corresponding to (and named by) the sequence variants.
+
+# Remove sequences with length too distant from amplified region
+
+Here we will remove merged sequences of wrong length (i.e. <252bp or >254bp)
+
+```{r echo=TRUE}
+seqtab2 <- seqtab[,nchar(colnames(seqtab)) %in% 252:254]
+dim(seqtab2)
+```
+
+# Remove chimeras
+
+The core dada method corrects substitution and indel errors, but chimeras remain. Fortunately, the accuracy of sequence variants after denoising makes identifying chimeric ASVs simpler than when dealing with fuzzy OTUs. Chimeric sequences are identified if they can be exactly reconstructed by combining a left-segment and a right-segment from two more abundant “parent” sequences.
+
+Most of your reads should remain after chimera removal (it is not uncommon for a majority of sequence variants to be removed though). If most of your reads were removed as chimeric, upstream processing may need to be revisited. In almost all cases this is caused by primer sequences with ambiguous nucleotides that were not removed prior to beginning the DADA2 pipeline."
+
+*Q :* What is the % of chimeric sequences ?
+*Q :* How many ASVs do you have in the end ? 
+
+```{r echo=TRUE}
+seqtab.nochim <- removeBimeraDenovo(seqtab2, method="consensus", multithread=TRUE, verbose=TRUE)
+dim(seqtab.nochim)
+rownames(seqtab.nochim)
+sum(seqtab.nochim)/sum(seqtab2)
+#0.9663491
+```
+
+# Counting reads part 2
+
+Create one file containing read counts from raw data and post-trimmomatic
+! This is a bash command ! 
+
+```{bash echo=TRUE}
+grep "_1" read_counts_overview.txt > read_counts_overview_FWD.txt
+```
+
+```{r echo=TRUE}
+preDADA2 <-read.table('read_counts_overview_FWD.txt', sep='\t', header = F)
+colnames(preDADA2) <- c('Sample_name','Before', 'After_trimmomatic', 'After_cutadapt')
+preDADA2 <- preDADA2[order(preDADA2$Sample_name),]
+
+getN <- function(x) sum(getUniques(x))
+reads_counts <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
+
+colnames(reads_counts) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+rownames(reads_counts) <- sample.names
+
+# check dimensions
+dim(preDADA2) ; dim(reads_counts)
+# check samples order
+preDADA2[,1] ; rownames(reads_counts)
+
+# Join the dataframes
+ReadsTrack<-cbind(sample.names, preDADA2[,2:3], reads_counts[,2:6])
+ReadsTrack$fracKept <- ReadsTrack$nonchim/ReadsTrack$Before
+ReadsTrack
+ggplot(ReadsTrack, aes(x=sample.names, y=fracKept))+
+  geom_bar(stat="identity")
+
+# Save Boxplot and read track table
+pdf("boxplot_read_tracking", width = 10, height=7)
+boxplot(ReadsTrack[,-c(1)], ylim=c(0,120000))
+dev.off()
+write.csv(ReadsTrack, "Reads_tracking.csv", row.names = FALSE)
+```
+
+# Track reads through the pipeline per sample 
+
+Did a sample loose more reads than all the other ? What is the proportion of lost/kept reads per sample ?
+Do you think enough reads are remaining ?
+```{r echo=TRUE}
+#ReadsTrack <- read.csv("stats/Reads_tracking.csv")
+div <- function(x,y) (x/y)*100
+lostReads <- (1-(ReadsTrack[,-c(1)]/ReadsTrack$Before))
+averageLost <- mean(lostReads$nonchim)
+lostperSpecies <- lostReads$nonchim
+names(lostperSpecies) <- ReadsTrack$sample.names
+averageLost
+lostperSpecies
+```
+
+# Assign taxonomy to the ASVs
+
+"The `assignTaxonomy` function takes as input a set of sequences to be classified and a training set of reference sequences with known taxonomy, and outputs taxonomic assignments with at least minBoot bootstrap confidence."
+
+The training and species assignment sets can be downloaded from the cluster `/scratch/wally/TRAINING/UNIL/FBM/jgianott/sage/sage2020/SAGE_SUPPLEMENT/SILVA` or here (https://zenodo.org/record/3986799#.Yk2d9NNBw-Q). This is v138.
+
+"Considerations for your own data: If your reads do not seem to be appropriately assigned, for example lots of your bacterial 16S sequences are being assigned as Eukaryota NA NA NA NA NA, your reads may be in the opposite orientation as the reference database. Tell dada2 to try the reverse-complement orientation with assignTaxonomy(..., tryRC=TRUE) and see if this fixes the assignments"
+
+```{r echo=TRUE}
+taxa <- assignTaxonomy(seqtab.nochim, "<path>/<to>/<your_directory>/silva/silva_nr99_v138_wSpecies_train_set.fa.gz", multithread=TRUE)
+
+taxa <- addSpecies(taxa,"<path>/<to>/<your_directory>/silva/silva_species_assignment_v138.fa.gz")
+
+taxa.print <- taxa # Removing sequence rownames for display only
+rownames(taxa.print) <- NULL
+head(taxa.print)
+path_tax <- paste(PathToWD, "03_Taxonomy", sep="/")
+dir.create(path_tax)
+
+write.csv2(file=paste(path_tax, "Taxtable_dada2.csv", sep="/"), taxa)
+write.csv2(file=paste(path_tax, "ASV_sequences.csv", sep="/"),seqtab.nochim)
+```
+
+# Export to PhyloSeq
+
+Here we will combine all the data we have, ie. the samples metadata, the taxonomy, and the ASV table in a phyloseq object.
+This object can be saved and used in other R-markdown or scripts for downstream analysis of the results.
+
+```{r echo=TRUE}
+library(ggplot2)
+library(vegan) # ecological diversity analysis
+library(dplyr)
+library(scales) # scale functions for vizualizations
+library(grid)
+library(reshape2) # data manipulation package
+library(cowplot)
+library(phyloseq)
+
+
+# Set plotting theme
+theme_set(theme_bw())
+
+#Data frame containing sample information
+samdf = read.table(file="/scratch/jgianott/sage/SAGE2021_22/common_files/Metadata_kefir.csv", sep="\t",header = T, fill=TRUE) 
+# fill=TRUE allows to read a table with missing entries
+
+rownames(samdf) = samdf$SampleName
+
+taxa <- read.table(file="/Users/admin/Documents/Dada2_SAGE_2022/03_Taxonomy/Taxtable_dada2.csv", sep = ";",header=T)
+
+
+#Create a phyloseq object
+ps_raw <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows=F), 
+               sample_data(samdf), 
+               tax_table(taxa))
+otu_table(ps_raw)
+sample_data(ps_raw)
+sample_names(ps_raw)
+tax_table(ps_raw)
+
+
+# save sequences as refseq and give new names to ASV's
+dna <- Biostrings::DNAStringSet(taxa_names(ps_raw))
+names(dna) <- taxa_names(ps_raw)
+ps_raw <- merge_phyloseq(ps_raw, dna)
+taxa_names(ps_raw) <- paste0("ASV", seq(ntaxa(ps_raw)))
+ps_raw
+ps <- ps_raw
+
+# Export ASV table
+path_phylo <- paste(PathToWD, "04_Phyloseq_object", sep="/")
+dir.create(path_phylo)
+table = merge( tax_table(ps),t(otu_table(ps)), by="row.names")
+write.table(table, "04_Phyloseq_object/ASVtable.txt", sep="\t", row.names = F)
+
+# Export to FASTA with Biostrings
+writeXStringSet(refseq(ps), "04_Phyloseq_object/phyloseq_ASVs.fasta",append=FALSE, format="fasta")
+
+#save Phyloseq object
+saveRDS(ps, '04_Phyloseq_object/PhyloSeq_Object.rds')
+
+#Check that you can import it
+ps <- readRDS("04_Phyloseq_object/PhyloSeq_Object.rds")
+```
+
+*Q :* What does the phyloseq object contains in terms of data ? 
+
+*Q :* What do you think the next steps will be ? 
+
+*Q :* Have a look at the `Taxtable_dada2.csv` and  `ASV_sequences.csv` files. What information can you find in them ? 

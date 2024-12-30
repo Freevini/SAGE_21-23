@@ -1,0 +1,291 @@
+---
+title: "Metagenomics Binning and QC"
+author: "Malick Ndiaye"
+date: "16th of May 2023"
+output:
+  html_document:
+    number_sections: yes
+    theme: readable
+    highlight: tango
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: yes
+  pdf_document:
+    toc: yes
+editor_options:
+  chunk_output_type: console
+---
+
+<!-- comment out for pdf compiling -->
+
+```{=html}
+<style>
+    h1.title {
+        font-size: 40px;
+        font-family: Serif;
+        text-align: center;
+        font-weight: normal;
+        /* color: DarkRed; */
+    }
+    h1 {
+        font-size: 24px;
+        font-family: Serif;
+        font-weight: bold;
+        /* font-weight: bold; */
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    h2 {
+        font-size: 22px;
+        font-family: Serif;
+        font-weight: bold;
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    h3 {
+        font-size: 20px;
+        font-family: Serif;
+        font-weight: bold;
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    body .main-container {
+        /* max-width: 1000px; */
+        font-size: 18px;
+        font-family: Serif;
+    }
+</style>
+```
+```{css echo=FALSE}
+/* To make hoverable links. (does not have to be called hint) Usage: */
+/* [Message to show on hover]{.hint} */
+.hint {
+  visibility: hidden;
+}
+
+.hint::before {
+  visibility: visible;
+  content: "Hint";
+  color: blue;
+}
+
+.hint:hover {
+  visibility: visible;
+  font-weight: bold;
+}
+
+.hint:hover::before {
+  display: none;
+}
+```
+
+```{r setup ,echo=FALSE}
+knitr::opts_chunk$set(message=FALSE, echo=FALSE, eval=FALSE,warning = FALSE)
+knitr::opts_chunk$set(engine.opts = list(bash = "-l"))
+```
+
+# Introduction
+
+In the previous sessions, we worked on 16s rRNA data. Here, we will focus on shotgun metagenomics sequencing data. Briefly, shotgun metagenomics entails cutting all the DNA within a sample into small fragments (150-250bp) and sequencing the total DNA content. The advantage of this technique over 16s data is that the full genome of the bacteria in our sample is available to us. This means that we will be able to characterize the community composition, just like with 16s data, but also to characterize the functional potential of our community. However, the main problem of shotgun metagenomics arises in the fragmentation step. Indeed, we go from full genomes of several bacteria species, to millions of small DNA fragments (sequencing reads). Thus, the first thing a researcher must do when handling metagenomics data, is to go back from sequencing reads to full genomes. To do so, we will use an approach known as **metagenomics binning**.
+
+Existing metagenomics binning approaches can be divided into two categories. These are (1) reference-based binning and (2) reference-free binning. Reference-based binning approaches rely on a database consisting of reference genomes. Here, reads are assigned to the genome they are most similar to. once reads are assigned to a given genome, they can be assembled and analyzed just like in SAGE I. However, reference-based binning may not be applicable in many metagenomic samples when the reference genomes of novel species are not available. Therefore, in this course we will use Reference-free binning. Reference-free binning entails the following steps:
+
+1.  **Sequencing the sample**: This works exactly like sequencing a single genome (see SAGE I). However, this time multiple genomes will be present in our sample. This step has already been done for you.
+
+2.  **Metagenomics assembly**: This works similarly to genome assembly (see SAGE I) with the key difference that we are assembling multiple genomes at once instead of one. After this step we will obtain a set of contigs for each sample. However, due to low complexity regions and other factors, each contig most likely will contain just a fraction of the full genome of a given bacteria in our sample. Since this step is very similar to what you have already done in SAGE I, we assembled the metagenomics sample for you using spades with the --meta (metagenomics) option.
+
+3.  **Backmapping**: In this step, we will map the reads from each sample against the assembly of each sample. This allows us to obtain the coverage (i.e. the abundance) of each contig in each sample. This information is required in the binning process. Backmapping is a quadratic process, meaning that if you have *n* samples, you will need to map *n* set of reads against *n* assemblies, this results in *n²* mappings (i.e. takes a *loooong* time). Thus, we did it for you.
+
+4.  **Binning**: In this step, we will *bin* the contigs into metagenomics assembled genomes (MAGs). For this task we will use [MetaBAT2](https://peerj.com/articles/7359/). The main logic behind this and other binning tools is that contigs coming from the same genome will have the same abundance across samples, as well as similar genomic features such as GC content and tertanucleotide frequencies. Thus, by using the coverage info we obtained in the previous step, as well as our assemblies, MetaBAT2 will infer which contigs belong to the same genome.
+
+
+
+![*Illustration summarizing the genome binning process. For each sample, sequencing reads are assembled into contigs. Then, reads from each sample are mapped against the assembly of each sample to obtain the coverage of each contig across samples. This information, together with the contigs' genomic features, is used to infer which contigs belong to which sample*](images/Genome_binning_SAGE.png)
+
+
+
+Once step 1-4 are completed, we will obtain a set of MAGs for each sample that we will use for further analyses.
+
+## BASH: A Reminder
+
+Here you will find some lines of code that will be useful as a reminder to work on the cluster from your terminal.
+
+```{bash echo=TRUE}
+# to access the cluster
+ssh <username>@curnagl.dcsr.unil.ch
+
+# to move directories
+cd destination/directory/path
+
+# using variables
+var=some/variable/for/example/a/path/to/a/directory # set the variable
+cd ${var} # use the variable in a command: use the $ sign before the variable
+
+# copy stuff from the cluster to your local PC
+scp <username>@curnagl.dcsr.unil.ch:<PathToFile>  <LocalFileLocation>
+
+# create a new file
+touch <filename>.<extension> # this will create a file in your current directory. If you want to create it in another directory, add the path before the file name
+
+# submit a script to the cluster
+sbatch script.sh 
+
+# check the status of a job on the cluster
+sacct
+
+# open a script to read
+less script.sh # type "q" to exit the reading mode
+
+# open a script to edit. However, I STRONGLY suggest to use an external editor
+nano  script.sh # type "ctrl+C" to exit the editing mode
+```
+
+# Genome Binning
+
+Now it's time to get to work! Below you will find a script that uses MetaBAT2 to perform the binning. MetaBAT2 requires two inputs:
+
+-   A table containing the coverage across samples of each contig in a given assembly (passed to the tool through the flag *-a*).
+-   The assembly of the given sample from which you want to bin the contigs (passed to the tool through the flag *-i*).
+
+Each student has been assigned to a sample. you can find the sample you've been assigned to on the [SAGE spreadsheet](https://docs.google.com/spreadsheets/d/17rel-XigS9XZC6VTc0b30PYGt2Xo29wCDRi6otIkqwU/edit#gid=878893917).
+
+now create a shell script in your directory on the cluster (`/scratch/jgianott/SAGE/SAGE2022_2023/<username>`) and copy the script content in it. ***REMEMBER TO MODIFY THE USERNAME AND THE SAMPLE NAME BEFORE LAUNCHING THE JOB***
+
+```{bash echo=TRUE}
+#!/bin/bash
+
+######### SLURM OPTIONS
+#SBATCH --partition cpu
+#SBATCH --account jgianott_sage
+#SBATCH --job-name MAG_binning
+#SBATCH --nodes 1
+#SBATCH --ntasks 1
+#SBATCH --cpus-per-task 8 # Ask for 8 threads (default: 1 thread)
+#SBATCH --mem 2G # 2 Gb of memory (default: 2Gb)
+#SBATCH --time 1:00:00 # Ask for one hour (default : 12 hours)
+#SBATCH --error /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/MAG_binning.err # MODIFY USERNAME!!!!!!!!!!
+#SBATCH --output /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/MAG_binning.out # MODIFY USERNAME!!!!!!!!!!
+
+#########  SCRIPT
+
+# Activate conda environment
+source ~/.bashrc 
+conda activate /scratch/jgianott/SAGE/SAGE2022_2023/common_files/conda_envs/metabat2_env
+
+# Set variables --> MODIFY!!!!
+sample=<sample>
+username=<username>
+
+# Set variables --> DO NOT MODIFY!!!!
+assembly=/scratch/jgianott/SAGE/SAGE2022_2023/common_files/kefir_metaG/assemblies/${sample}_contigs.fasta
+depth=/scratch/jgianott/SAGE/SAGE2022_2023/common_files/kefir_metaG/depth_tables/merged_depths/${sample}_global_depth.txt
+outdir=/scratch/jgianott/SAGE/SAGE2022_2023/${username}/MAGs/${sample}_bins/
+
+# create output directory
+mkdir -p ${outdir}
+
+# run metabat
+metabat2 -i ${assembly} -a ${depth} -o ${outdir}/${sample}_MAG --minContig 2500 --maxEdges 200 -x 1 --numThreads 8
+
+# deactivate conda
+conda deactivate
+```
+
+Once the job is launched, it will take a couple of minutes to be completed. Once completed, explore the output directory `/scratch/jgianott/SAGE/SAGE2022_2023/<username>/MAGs/<sample>_bins/`and reply to the following questions.
+
+## Questions
+
+1.  How many MAGs did you obtain? write the number on the [SAGE spreadsheet](https://docs.google.com/spreadsheets/d/17rel-XigS9XZC6VTc0b30PYGt2Xo29wCDRi6otIkqwU/edit#gid=878893917).
+
+2.  In a perfect world, we would obtain at least one MAG for each species in the sample. How many species does your sample have? does it correspond with the number of MAGs obtained? Why? *remember that you have already the 16s community composition of each sample.*
+
+3.  (optional) what's the genome size of your MAGs? is it good?
+
+# MAGs Quality Check & Taxonomic Classification
+
+Just as when working with single genomes in SAGE I, MAGs must be quality checked. Indeed, MAGs resulting from the binning process can be of poor quality. Some of the reasons why are listed below:
+
+-   **Mobile Genetic Elements (phages, genomic islands, ecc...)**: These can be shared among several strains. Thus, the abundance of contigs containing these elements doesn't correlate with any single strain, which makes it impossible to bin them. This can decreese the completeness of your MAGs.
+
+-   **High Genetic Similarity Between Contigs**: Different bacterial genomes in a metagenomics sample may share similar genes and genomic regions. If contigs belonging to different species are very similar, the mapping tool used during the backmapping will assign the same number of reads to all the similar contigs. This means that their abundance will be the same and they might end up being binned in the same genome. This can increase the contamination or the strain heterogeneity of your MAGs.
+
+Thus, just like in SAGE I, we will use [CheckM](https://ecogenomics.github.io/CheckM/) to estimate the quality of our MAGs. You will notice that some MAGs will be of low quality (high contamination or low completeness). It is important to work only with high-quality MAGs to avoid artifacts in downstream analyses. Thus, we will reatin only MAGs with completeness\>75% and contamination\<10%.
+
+Another problem is that we have no idea to which taxonomic group our MAGs belong to. CheckM already tries to infer the origin of the MAGs using marker genes. However, we have an entire genome! So, we will use a tool that infers the MAGs taxonomic groups by using the entire genome sequence: [GTDB-TK](https://gtdb.ecogenomic.org/). This tool relies on a database of 402,709 genomes to place your MAGs into a taxonomic group. Briefly, the GTDB-TK database contains several reference genomes classified at the species level. It finds the reference genome that most resembles your MAG and calculates the average-nucleotide identity (ANI). If the ANI between the MAG and the reference genome is \>95%, the MAG will be assigned to the same species of the reference genome. Otherwise, the MAG will be assigned to the same Genus, Family, Order, ecc... depending on the ANI value. Unlike CheckM, GTDB-TK uses the full genome for taxonomic classification. Thus, it has an higher accuracy and recall.
+
+Below you will find a script to run CheckM, the filtering and the taxonomic classification. Now create a shell script in your directory on the cluster (`/scratch/jgianott/SAGE/SAGE2022_2023/<username>`) and copy the script content in it. Before running it, read the script and try to understand what it does, ask the assistants if you have doubts.
+
+***REMEMBER TO MODIFY THE USERNAME AND THE SAMPLE NAME BEFORE LAUNCHING THE JOB***
+
+```{bash echo=TRUE}
+#!/bin/bash
+
+######### SLURM OPTIONS
+#SBATCH --partition cpu
+#SBATCH --account jgianott_sage
+#SBATCH --job-name MAG_QC_tax
+#SBATCH --nodes 1
+#SBATCH --ntasks 1
+#SBATCH --cpus-per-task 16 # Ask for 16 threads (default: 1 thread)
+#SBATCH --mem 200G # 200 Gb of memory (default: 2Gb)
+#SBATCH --time 1:00:00
+#SBATCH --error /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/MAG_chekm.err # MODIFY USERNAME!!!!!!!!!!
+#SBATCH --output /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/MAG_chekm.out # MODIFY USERNAME!!!!!!!!!!
+
+#########  SCRIPT
+
+# Activate conda environment
+source ~/.bashrc 
+conda activate /scratch/jgianott/SAGE/SAGE2022_2023/common_files/conda_envs/metabat2_env
+
+# Set variables TO MODIFY!!!!
+sample=<sample>
+username=<username>
+
+# Set variables DO NOT MODIFY!!!!
+bins=/scratch/jgianott/SAGE/SAGE2022_2023/${username}/MAGs/${sample}_bins/
+outdir=/scratch/jgianott/SAGE/SAGE2022_2023/${username}/MAGs/${sample}_checkm_QC
+outfile=${outdir}/${sample}_checkm_QC_stats.tsv
+filtered_mags=/scratch/jgianott/SAGE/SAGE2022_2023/${username}/MAGs/filtered_MAGs/
+tax_dir=/scratch/jgianott/SAGE/SAGE2022_2023/${username}/MAGs/${sample}_gtdbtk
+
+
+# Run checkm
+checkm lineage_wf ${bins} ${outdir} -x fa -t 16
+checkm qa ${outdir}/lineage.ms ${outdir} -o 2 -f ${outfile} --tab_table
+
+# Copy genomes with completeness>75% and contamination<10% into a new directory
+mkdir -p ${filtered_mags}
+awk -F'\t' -v gen_dir="$bins" 'NR>1 && ($7<10 && $6>75) {print gen_dir$1".fa"}' ${outfile} | xargs -I{} cp {} ${filtered_mags}
+
+# Run GTDB-TK to perform taxonomic classification
+mkdir -p ${tax_dir}
+GTDBTK_DATA_PATH=/scratch/jgianott/SAGE/SAGE2022_2023/common_files/release202/
+gtdbtk classify_wf --genome_dir ${bins} --extension fa --out_dir ${tax_dir} --cpus 16
+
+# Deactivate conda
+conda deactivate
+```
+
+The script will take a while to run. In the meantime, read the questions below and think on how you can answer to them once the script is done.
+
+## Questions
+
+Explore the CheckM output in `/scratch/jgianott/SAGE/SAGE2022_2023/<username>/MAGs/<sample>_checkm_QC` . Copy the file named *\<sample\>\_checkm_QC_stats.tsv* to your local PC to answer to the following questions:
+
+1.  The file contains several columns, what do they mean?
+
+2.  What's the size of your MAGs? fill the [spreadsheet](https://docs.google.com/spreadsheets/d/17rel-XigS9XZC6VTc0b30PYGt2Xo29wCDRi6otIkqwU/edit#gid=143349907)
+
+3.  What's the quality of your MAGs? Is it correlated with the size? fill the [spreadsheet](https://docs.google.com/spreadsheets/d/17rel-XigS9XZC6VTc0b30PYGt2Xo29wCDRi6otIkqwU/edit#gid=143349907)
+
+4.  How many MAGs are you left with after filtering for high-quality ones? fill the [spreadsheet](https://docs.google.com/spreadsheets/d/17rel-XigS9XZC6VTc0b30PYGt2Xo29wCDRi6otIkqwU/edit#gid=878893917)
+
+Now explore the GTDB-TK output in `/scratch/jgianott/SAGE/SAGE2022_2023/${username}/MAGs/${sample}_gtdbtk`. Which file is the most useful to assign your MAGs to a taxonomic group? Copy it in your local PC and answer to the following questions:
+
+1.  Are all your MAGs classified at the Genus or Species level? fill the [spreadsheet](https://docs.google.com/spreadsheets/d/17rel-XigS9XZC6VTc0b30PYGt2Xo29wCDRi6otIkqwU/edit#gid=143349907)
+2.  Is there a correlation between MAG's quality and the level of taxonomic classification?
+3.  Do the species assigned to the MAGs correspond to the ones found in your sample using 16s data?
+4.  Do the number of MAGs recovered for a given species correspond to it's relative proportion in the 16s data in your sample?

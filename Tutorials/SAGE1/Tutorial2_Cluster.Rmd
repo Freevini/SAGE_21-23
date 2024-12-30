@@ -1,0 +1,327 @@
+---
+output:
+  html_document:
+    title: "220929_Tutorial2_Cluster"
+    number_sections: yes
+    theme: readable
+    highlight: tango
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: yes
+  pdf_document:
+    toc: yes
+editor_options:
+  chunk_output_type: console
+---
+<!-- comment out for pdf compiling -->
+<style>
+    h1.title {
+        font-size: 40px;
+        font-family: Serif;
+        text-align: center;
+        font-weight: normal;
+        /* color: DarkRed; */
+    }
+    h1 {
+        font-size: 24px;
+        font-family: Serif;
+        font-weight: bold;
+        /* font-weight: bold; */
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    h2 {
+        font-size: 22px;
+        font-family: Serif;
+        font-weight: bold;
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    h3 {
+        font-size: 20px;
+        font-family: Serif;
+        font-weight: bold;
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    body .main-container {
+        /* max-width: 1000px; */
+        font-size: 18px;
+        font-family: Serif;
+    }
+</style>
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 80)
+```
+
+```{css echo=FALSE}
+/* To make hoverable links. (does not have to be called hint) Usage: */
+/* [Message to show on hover]{.hint} */
+.hint {
+  visibility: hidden;
+}
+
+.hint::before {
+  visibility: visible;
+  content: "Hint";
+  color: blue;
+}
+
+.hint:hover {
+  visibility: visible;
+  font-weight: bold;
+}
+
+.hint:hover::before {
+  display: none;
+}
+```
+
+
+```{r setup ,echo=FALSE}
+knitr::opts_chunk$set(message=FALSE, echo=FALSE, eval=FALSE,warning = FALSE)
+knitr::opts_chunk$set(engine.opts = list(bash = "-l"))
+```
+
+
+# Using a HPC Cluster {-}
+German Bonilla-Rosso 
+
+# Intro
+In this tutorial, you will build on the scripting skills acquired in the last session to submit a BASH script to **curnagl**, the *H*igh *P*erformance *C*omputing (HPC) cluster at UNIL. To access it, we need to write a special kind of script with specific instructions to *curnagl* about how to run our job. This script is then submitted to a program which controls the automatic execution of jobs AND manages the resources across different jobs to maximize efficiency. The *job scheduler* in *curnagl* is **SLURM**, and it distributes the jobs it receives to the host (or nodes) in the cluster. Thus, it can automatically manage many jobs sent by different users at the same time. 
+
+In the last part, we will learn how to make and submit scripts which use software already installed on the cluster. 
+
+  - [software carpentry UNIX tutorial](http://swcarpentry.github.io/shell-novice/) for the  basics 
+
+
+# The Job Script
+
+In order to use *curnagl* at its max, we need to write a script that contains instructions for the scheduler, e.g. how many nodes and memory we are using, and then the complete list of commands we want to execute. A single unit of all the commands we want to run and its cluster instructions is called a **job**. 
+
+## Why would you want to run this as a job?
+- To avoid making heavy computations on the front-end.
+- Reproducibility. By putting your commands in a script and submitting it to the cluster, the standard output can be saved as well.
+- To run many computations in parallel.
+
+##  Use our previous bash script as a template
+
+In this tutorial, we will use the file you used last time and run it into the cluster. So modify the script you wrote last time (`myFirstScript.sh`) to make the output go into a separate directory called `Output`. To do so, make a directory in `example/` called `Output`, copy the file `myFirstScript.sh`, and then modify `myFirstScript.sh` to redirect the output (`_headers.fst` and `_reversed.fst` files) into it.
+
+```bash
+cd /scratch/jgianott/sage/SAGE2022_23/<user>/example
+#make output directory
+mkdir Output
+#open up the bash script
+nano myFirstScript.sh
+```
+
+*myFirstScript.sh*
+```bash
+#!/bin/bash
+# Here you can put a title of the script and a short description of what it is doing.
+cd /scratch/jgianott/SAGE/SAGE2022_2023/<username>/example   # This is just to make sure that the script is executed in the correct directory. Use your own path!Modify the path!!!
+echo "These are the total length of the sequences in each file:"
+for file in Lsp*; do 
+    echo $file
+    grep -v '>' $file | tr -d '\n' | tr -d '\r' | tr -d ' ' | wc -c
+    sed 's/ | /:/g' $file | sed 's/ /_/g' | sed 's/:/|/g' >  ./Output/${file%.fst}_headers.fst 
+    sed '/>/s/$/\t/g' ./Output/${file%.fst}_headers.fst | tr -d '\n' | sed 's/>/\n>/2g' | sort -r | tr '\t' '\n' > ./Output/${file%.fst}_reversed.fst
+    # you can add more commands to be executed within the loop here!
+done
+echo "The files with reformatted headers end with *_headers.fna"
+echo "The files with genes in reverse order end with *_reversed.fna" # you can add more commands here!
+```
+
+Since the first line of the script is to change the directory, we can use relational paths rather than full paths to indicate where the Output directory is.
+
+## 1.3 Write a job script
+Job scripts are used to store the *parameters* you will need to submit to the scheduler. The command used to submit the job script is called `sbatch`. The job script (also called an sbatch script) will start with these parameters specified as several options, each on a separate line starting with `#SBATCH`. After the parameters are listed, skip a line and then write the commands you want to execute. 
+
+I have prepared a template file that you can use to start all your job sumbissions. First, copy `template.sh` from `/common_files/tutorial_2` into your example directory.
+
+*template.sh*
+```bash
+#!/bin/bash -l
+#SBATCH --partition cpu
+#SBATCH --account jgianott_sage
+#SBATCH --job-name
+#SBATCH --output /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/log_%x_%j.out
+#SBATCH --error /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/log_%x_%j.err
+#SBATCH --nodes 1
+#SBATCH --ntasks 1
+#SBATCH --cpus-per-task 8
+#SBATCH --mem 1G
+#SBATCH --time 00:05:00
+#SBATCH --export NONE
+
+#Type your commands below to execute on a host
+```
+
+You can now modify the `template.sh` file to contain the parameters needed to execute `myFirstScript.sh`.  On the `#SBATCH` lines, modify the job name to whatever you’d like, and make the `--output` name as `.out` and `--error` as `.err`. (Will will change this to be more informative in later steps). 
+```bash
+cp /scratch/jgianott/SAGE/SAGE2022_2023/common_files/tutorial_2/template.sh /scratch/jgianott/sage/SAGE2022_23/<user>/example/myFirstJob.sh
+```
+Open `myFirstJob.sh` in nano, then copy and paste the content of `myFirstScript.sh` at the very bottom of `myFirstJob.sh`, after the instructions for the cluster.  
+
+*myFirstJob.sh*
+```bash
+#!/bin/bash -l
+
+#SBATCH --partition cpu
+#SBATCH --account jgianott_sage
+
+#SBATCH --job-name FirstJob
+#SBATCH --output /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/log_%x_%j.out
+#SBATCH --error /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/log_%x_%j.err
+
+#SBATCH --nodes 1
+#SBATCH --ntasks 1
+#SBATCH --cpus-per-task 8
+#SBATCH --mem 1G
+#SBATCH --time 00:05:00
+#SBATCH --export NONE
+
+#Type your commands below to execute on a host
+cd /scratch/jgianott/sage/SAGE2022_23/<user>/example    # This is just to make sure that the script is executed in the correct directory. Use your own path! Modify the path!!!
+
+# Here you can put a title of the script and a short description of what it is doing.
+cd /scratch/jgianott/SAGE/SAGE2022_2023/<username>/example   # This is just to make sure that the script is executed in the correct directory. Use your own path!Modify the path!!!
+echo "These are the total length of the sequences in each file:"
+for file in Lsp*; do 
+    echo $file
+    grep -v '>' $file | tr -d '\n' | tr -d '\r' | tr -d ' ' | wc -c
+    sed 's/ | /:/g' $file | sed 's/ /_/g' | sed 's/:/|/g' >  ./Output/${file%.fst}_headers.fst 
+    sed '/>/s/$/\t/g' ./Output/${file%.fst}_headers.fst | tr -d '\n' | sed 's/>/\n>/2g' | sort -r | tr '\t' '\n' > ./Output/${file%.fst}_reversed.fst
+    # you can add more commands to be executed within the loop here!
+done
+echo "The files with reformatted headers end with *_headers.fna"
+echo "The files with genes in reverse order end with *_reversed.fna" # you can add more commands here!
+```
+
+# Running a job script
+Now that the script is all prepared, we have to submit the script to the scheduler using `sbatch`. Once it gets submitted, it is assigned a *SLURM* job ID, which can be used to track your job. 
+
+If there are many users of the cluster at that moment, your job might have to sit in the queue of other jobs until the required resources needed for your job to run are available. “When the job allocation is finally granted for the batch script, *SLURM* runs a single copy of the batch script on the first node in the set of allocated nodes.”
+
+## Run the job script 
+```bash
+sbatch myFirstScript.job
+```
+
+## Check the status of the job 
+Visit [https://curc.readthedocs.io/en/latest/running-jobs/slurm-commands.html](https://curc.readthedocs.io/en/latest/running-jobs/slurm-commands.html). Find out what is the status of your job? 
+
+```bash
+squeue -u <user>
+```
+
+You can see if your job is pending, running, failed, or completed by using `sacct`. 
+If your job is:
+- Pending: your job is still waiting to get allocated the resources (i.e. to get sent to a host)
+- Running: your job is currently running
+- Failed: Uh oh! Now you have to do investigative work to figure out what’s going on. See next section (Errors and Output)
+- Completed: Congratulations your job is complete!
+
+Once your job has completed, examine the output. If all went well, there should be two kinds of output: the output which we specified in the `myFirstScript.sh` (i.e. the fasta headers and reversed files), and the standard out which normally gets printed on the screen when running a command. This should be in the `*.out` file under the `/logs/` directory which we specified in the `myFirstScript.job`.
+
+## Errors and Output
+
+Oftentimes, we make mistakes and the job may fail. The standard error and standard output files come in handy to investigate what happened. We originally named these files `*.out` and `*.err` in the job script, but now we will name them more meaningful names, to make them easily traceable. 
+
+Modify output and error parameters in the sbatch script to reflect the jobname and the jobid of the running job in the name of the file. See `https://curc.readthedocs.io/en/latest/running-jobs/slurm-commands.html` to find which filename pattern to use. 
+
+Additionally, while you are modifying the job script, introduce an error/typo if you didn’t already have one. This will be used to demonstrate where the error was written when you need to find out what went wrong. 
+
+Save the edited job file and run it with `sbatch`. Examine the output and/or errors. Fix the script and run it again.
+
+## Cancelling a job
+Sometimes if you know you made a mistake, you can cancel the job after submitting it. To cancel a job, use `scancel`. For this, you need the running or pending *jobid*.
+```bash
+#cancel jobs
+scancel <jobid>
+#to cancel all your jobs 
+scancel -u <username>
+#to get jobid
+squeue -u <username>
+```
+
+# Loading software into the cluster
+
+The UNIL cluster *curnagl* has already preinstalled software optimized for parallel running. In this example we will load the sequence aligner `mafft` and write a script to launch a job using it. 
+
+## 3.1 Loading the software environment
+Software in *curnagl* is grouped in different **environments**. To see which packages are available, use `module avail`.
+```bash
+module avail
+```
+How can we know which modules are loaded?
+
+## Loading the software itself
+To look for a specific software and list its dependencies, use `module spider`.
+```bash
+module spider mafft
+```
+This will list the software found and what needs to be loaded first in order to make `mafft` work.
+```bash
+module load gcc/8.3.0
+module load mafft/7.453
+```
+
+## Use software in job scripts
+
+Now, we want to create a script that will run `mafft`. To make this alignment, first copy the file `PKS_sequences.faa` from the `common_files` to your `example/` directory.
+
+Then, make a `sbatch` job script. Don’t forget to change the job name, output, and error `SBATCH` parameters. In the script, load the software and run the basic `mafft` command to make an alignment (`mafft <input> > <output>`).
+
+```bash
+#!/bin/bash -l
+#SBATCH --partition cpu
+#SBATCH --account jgianott_sage
+#SBATCH --job-name FirstJob
+#SBATCH --output /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/log_%x_%j.out
+#SBATCH --error /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/log_%x_%j.err
+#SBATCH --nodes 1
+#SBATCH --ntasks 1
+#SBATCH --cpus-per-task 8
+#SBATCH --mem 1G
+#SBATCH --time 00:05:00
+#SBATCH --export NONE
+
+#change to working directory
+/scratch/jgianott/sage/SAGE2022_23/<user>/example/
+
+#load software
+module load gcc/9.3.0
+module load mafft/7.475
+
+#command for running mafft
+mafft sequences.faa > sequences.aln
+```
+
+Check out the output and error files. Did your script work?
+
+
+NOTE: Sometimes your script might fail saying that you don't have "permissions" to run it. 
+If this happen, there are two options:
+
+- You're trying to save your output, or create files or directories, somewhere else than your own `home` directories. You do NOT have permission to write in anyother place than your `home` directory. 
+
+- You might need permission to execute your own script. If this happens, make your script *executable*:
+
+```bash
+chmod +x myFirstJob.sh
+```
+
+
+
+
+
+
+
+
+
+

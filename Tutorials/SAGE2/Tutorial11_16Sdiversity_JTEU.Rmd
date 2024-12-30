@@ -1,0 +1,522 @@
+---
+title: "R Ecological Diversity with Phyloseq"
+author: "German Bonilla-Rosso"
+date: '2022-04-20'
+output:
+  html_document:
+    number_sections: yes
+    theme: readable
+    highlight: tango
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: yes
+  pdf_document:
+    toc: yes
+editor_options:
+  chunk_output_type: console
+---
+<!-- comment out for pdf compiling -->
+<style>
+    h1.title {
+        font-size: 40px;
+        font-family: Serif;
+        text-align: center;
+        font-weight: normal;
+        /* color: DarkRed; */
+    }
+    h1 {
+        font-size: 24px;
+        font-family: Serif;
+        font-weight: bold;
+        /* font-weight: bold; */
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    h2 {
+        font-size: 22px;
+        font-family: Serif;
+        font-weight: bold;
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    h3 {
+        font-size: 20px;
+        font-family: Serif;
+        font-weight: bold;
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    body .main-container {
+        /* max-width: 1000px; */
+        font-size: 18px;
+        font-family: Serif;
+    }
+</style>
+
+
+```{css echo=FALSE, eval=FALSE}
+/* To make hoverable links. (does not have to be called hint) Usage: */
+/* [Message to show on hover]{.hint} */
+.hint {
+  visibility: hidden;
+}
+
+.hint::before {
+  visibility: visible;
+  content: "Hint";
+  color: blue;
+}
+
+.hint:hover {
+  visibility: visible;
+  font-weight: bold;
+}
+
+.hint:hover::before {
+  display: none;
+}
+```
+
+
+```{r setup ,echo=FALSE}
+knitr::opts_chunk$set(message=FALSE, echo=TRUE, eval=TRUE,warning = FALSE)
+knitr::opts_chunk$set(engine.opts = list(bash = "-l"))
+```
+
+Welcome to the third part of our **16SrRNA Amplicon Sequencing**. Here, we will take a look into the diversity of ASVs within each of the samples, and squeeze this dataset to extract as much information as possible from it.  
+
+The way we compare microbial communities is using tools from community ecology, and we have heaps of theoretical and practical knowledge about them because they were originally developed for ecology of macroorganisms. With R, calculating the metrics is much easier than understanding what they mean, so pay attention to what each metric means when you're interpreting the results!
+
+Please take your time to read all instructions *carefully*, prepare your scripts and understand what you want to achieve with each command. 
+
+# Setting up your environment
+
+This tutorial will be entirely executed on your *local machine* using RStudio. Before we being, set the paths in your local environment by replacing these paths with the ones that point to the directory where you want to store the results from today's tutorial, and to the phyloseq object you saved in the previous part 2. We will also need to reload the Metadata table, which has been cleaned. 
+
+```{r setup }
+#set path in plain
+PathToWD <- (".")
+knitr::opts_knit$set(root.dir = normalizePath(PathToWD)) 
+```
+
+```{r echo=TRUE, eval=TRUE}
+PathToWD <- ("/mnt/raidarray/home/etu05/DADA2/")
+path2ps <- paste(PathToWD, "04_Phyloseq_object/", sep="/")
+setwd(path2ps)
+ps <- readRDS("PhyloSeq_Object.rds")
+metaKefir <- read.table(file="Metadata_kefir.csv",sep=",",header=TRUE)
+rownames(metaKefir) <- metaKefir$id_sample
+
+path2dv <- paste(PathToWD, "05_Diversity", sep="/")
+dir.create(path2dv)
+setwd(path2dv)
+```
+
+## Loading / Installing *phyloseq*
+We will use the *phyloseq* package, which was specifically developed for the analysis of microbial communities. We will need also some extensions and other packages. Be sure to use the latest versions of *R* and *phyloseq*. 
+
+```{r echo=TRUE, eval=TRUE}
+library(phyloseq)
+library(phyloseq.extended)
+library(ggplot2)
+#library(ggpubr)
+library(genefilter)
+library(vegan)
+library(ampvis)
+```
+
+
+If for any reason the previous libraries are not available in your system, you will need to install them. 
+The following code is only meant to be used IF they are somehow NOT installed in your system, so don't run this unless the packages ARE NOTinstalled:
+
+```{r echo=TRUE, eval=FALSE}
+# To install phyloseq:
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("phyloseq")
+
+# To install the extensions:
+BiocManager::install("genefilter")
+BiocManager::install("DESeq2")
+#install.packages("ggpubr")
+install.packages("vegan")
+install.packages("remotes")
+remotes::install_github("mahendra-mariadassou/phyloseq-extended")
+remotes::install_github("MadsAlbertsen/ampvis")
+```
+
+*phyloseq* has two R vignettes, accesible with:
+
+```{r echo=TRUE, eval=FALSE}
+vignette("phyloseq-basics")
+vignette("phyloseq-analysis")
+```
+
+# The *phyloseq* object
+To begin, you will need the *phyloseq* object you should have constructed at the end of the Part 2. You've already loaded it above, but here is the code again in case you need to reload a fresh one:
+```{r echo=TRUE, eval=TRUE}
+setwd(path2ps)
+ps <- readRDS("PhyloSeq_Object.rds")
+sample_data(ps) <- metaKefir
+path2dv <- paste(PathToWD, "05_Diversity", sep="/")
+setwd(path2dv)
+
+# Your phyloseq object is now in *ps*
+sample_data(ps) <- metaKefir
+ps
+```
+
+This is a special R object that must contain the following:
+
+* *phyloseq object*
+  + *otu_table* : This is an R matrix contains your *ASV x Sample* matrix, where the columns are your samples, rows are each of the ASVs you identified with DADA2, and the cells are populated with the abundance (in number of reads) of each ASV in each sample.
+  + *sample_data* : This is an R dataframe that contains all the metadata about your samples (sampleID, treatment, DNA yield, name of sampler, etc.). Rows contain each one of your samples, and columns each of the variables in the metadata. 
+  + *taxonomyTable* :  This is an R matrix that contains the taxonomic assignments for each of the ASVs. ASVs exist in the rows, and the classification is in columns, on different ranks. 
+  + *DNAStringSet* : This is a special Biostrings object that contains the sequence of each ASV, its ASV identifier and its length. 
+
+## Accessing your data
+Since the *phyloseq* object is a special kind of object, each data object will be accesible differently:
+
+```{r echo=TRUE, eval=TRUE}
+otu_table(ps)
+sample_data(ps)
+tax_table(ps)
+```
+*phyloseq* provides a set of functions to quickly retrieve useful information from your *phyloseq* object... they are self-explicative, so try them and figure out what they do:
+
+```{r echo=TRUE, eval=TRUE}
+library(phyloseq)
+ps
+rank_names(ps)
+sample_variables(ps)
+get_variable(ps) 
+```
+
+```{r echo=TRUE, eval=TRUE}
+ntaxa(ps)
+nsamples(ps)
+sample_names(ps)
+taxa_names(ps)
+sample_sums(ps)
+taxa_sums(ps)
+get_taxa(ps,"K11")      # All OTU abundances for ONE sample
+get_sample(ps,"ASV1")   # Abundances in ALL samples for ONE OTU. 
+
+```
+You can manipulate these as common R objects:
+```{r echo=TRUE, eval=TRUE}
+class( sample_sums(ps) )
+str( sample_sums(ps) )
+head(sort(sample_sums(ps),decreasing = TRUE),35)
+sample_sums(ps)["K11"]
+taxa_sums(ps)[1:15]
+taxa_sums(ps)[c("ASV1","ASV10","ASV100")]
+sample_data(ps)$AllFactor <- rep("ALL",35)
+```
+
+We now have everything we need to start exploring our dataset! 
+
+# Exploring your dataset
+
+## Rarefaction
+Differences in sampling effort can strongly affect diversity analyses, because samples that appear to have the same diversity might actually be sampled at different depths. 
+
+One technique to evaluate and compare the sampling depth of a community is *rarefaction*. Rarefaction will subsample each sample at different sequencing depths, and estimate how many ASVs you would have if you had sampled at that specific depth. A cumulative *rarefaction curve* then is plotted by joining the expectations at different depths. As such, it is also a measure of estimated richness.
+
+```{r echo=TRUE, eval=TRUE}
+ps
+pl.rare.all <- ggrare(ps, step = 1000, color = "treatment", label = "Sample", se = FALSE)
+pl.rare.all
+pl.rare.fct <- pl.rare.all + facet_wrap(~treatment)
+pl.rare.fct
+```
+What you need to pay attention to:
+
+  + The height of the curve at its final point is the observed richness in your sample (all other points are below because it was subsampled from this!)
+  + The slope of the curve at the final point, which tells you how many more ASVs are you discovering each time you sample 1000 reads more. A curve at 45° between the last two sampling points is growing at a 1:1 ratio, and would mean that each new read you sample is a new ASV you hadn't seen before. A completely flat curve at 0° would mean no new ASVs were found, and that all 1000 reads sampled at the final point belong to ASVs you had already found before. 
+  + The minimum sequencing depth at which all samples are contained. 
+
+**What have you learn from the rarefaction curve?**
+
+* How well-sampled are our samples? Would you recommend more sequencing? Or would you recommend less sequencing depth next time?
+* How heterogeneous is the sequencing depth?
+* How fast are the curves flattening? What does this mean?
+* Can we use these samples like this? How could it possibly affect our analyses?
+
+## Prevalence
+Another way to infer how many sampled bacteria were in transit (randomly sampled from the environment), is to count in how many samples each ASV is found with an abundance larger than zero. We call this the *prevalence* of an ASV. 
+
+In brief, those bacteria that are central components essential for your ecosystem will be present in all samples, and in relatively large proportions. ASVs from accidentally sampled bacteria, contaminants or arctifacts will have a prevalence around 1 and generally in low proportions. 
+
+```{r echo=TRUE, eval=TRUE}
+# Calculate prevalence across all samples
+ps.prev <- estimate_prevalence(ps,group="AllFactor",rarefy = FALSE)
+ps.prev$samplePrev <- ps.prev$prevalence * 35 # Convert to absolute sample numbers
+ps.prev$relAbund <- ( ps.prev$abundance / sum(ps.prev$abundance) ) # Calculate relative abundance 
+
+#Plot
+pl.prev.his <- ggplot(ps.prev, aes(x=samplePrev))+
+  geom_histogram(colour="steelblue",fill="steelblue", binwidth = 1, boundary = -0.5) +
+  scale_x_continuous(breaks = 1:35) +
+  stat_bin(binwidth=1, geom='text', colour="black", size = 2, aes(label=..count..), position=position_stack(vjust = 1.1))
+pl.prev.his
+## Compare prevalence with relative abundance
+# select the "Phylum" taxonomic assignation for your ASVs
+ps.tax.class <- data.frame(tax_table(ps)[,2]) 
+# Plot
+pl.prev.sct <- ggplot(ps.prev, aes(x=samplePrev, y=relAbund, color=ps.tax.class$Phylum)) +
+  geom_point() +
+  theme(legend.title=element_blank(),legend.text = element_text(size = 8), legend.position="bottom")+
+  guides(color=guide_legend(ncol=7, byrow=FALSE))
+pl.prev.sct
+```
+
+* From this plots we can learn the following:
+  + Does the majority of the ASVs have high or low prevalence?
+  + Are there any ASVs occurring in all samples? Were we expecting it?
+  + Are the most abundant ASVs dominating a single or few samples or are they present in all samples?
+
+## Richness 
+Most of what we've done so far depends on the number of ASVs we have per sample or *richness*. The richness of a sample can be affected by sequencing effort, DNA yields, volume sampled and many other factors. Let's calculate ASV richness and compare it to the total number of reads per sample.
+
+```{r echo=TRUE, eval=TRUE}
+# Calculate how many total ASVs 
+tmp_df <- t(otu_table(ps))
+ps.asv <- data.frame(colSums(tmp_df!=0))
+colnames(ps.asv) <- "ASVs"
+rm(tmp_df)
+
+# Now add the total read number
+ps.asv$reads <- sample_sums(ps)
+colnames(ps.asv) <- c("ASVs", "reads")
+ps.asv$sampleID <- rownames(ps.asv)
+
+# Make barplots for each sample:
+pl.asv.bar <- ggplot(ps.asv, aes(x = sampleID, y = ASVs) ) + 
+  ggtitle("Total ASVs per sample") + 
+  ylab("ASV number") +
+  geom_bar(stat="identity", fill="steelblue")+
+  theme(axis.text.x = element_text(angle=90))
+
+pl.red.bar <- ggplot(ps.asv, aes(x = sampleID, y = reads) ) + 
+  ggtitle("Total reads per sample") + 
+  ylab("Read number") +
+  geom_bar(stat="identity", fill="indianred")+
+  theme(axis.text.x = element_text(angle=90))
+
+# Histogram of ASVs and read counts
+pl.asv.his <- ggplot(ps.asv, aes(x = reads)) + 
+  geom_histogram(color = "black", fill = "indianred", binwidth = 5000) +
+  ggtitle("Total reads distribution") + 
+  xlab("Reads") +
+  ylab("Samples")+
+  theme(axis.text.x = element_text(angle=90))
+
+pl.red.his <- ggplot(ps.asv, aes(x = ASVs)) + 
+  geom_histogram(color = "black", fill = "steelblue", binwidth = 50) +
+  ggtitle("Total ASV distribution") + 
+  xlab("ASVs") +
+  ylab("Samples")+
+  theme(axis.text.x = element_text(angle=90))
+
+# Visualize
+ggarrange(pl.red.bar, pl.asv.bar, pl.asv.his, pl.red.his, ncol=2, nrow=2)
+summary(ps.asv)
+```
+
+* What can you learn from these plots?
+  + How variable is the sequencing depth across samples?
+  + How variable is the total ASV richness across samples?
+  
+It looks like we might be seeing more ASVs in samples that were sequenced more deeply (yielded more reads). Lets see if we can have a better picture of this:
+
+```{r echo=TRUE, eval=TRUE}
+# Compare ASVs against Reads
+pl.asv_red.scp <- ggplot(ps.asv, aes(x=reads, y=ASVs)) + 
+  geom_point()+
+  geom_smooth(method=lm)
+
+## Compare ASVs against DNA yields
+# Add DNA yields from the sample metadata
+tmp1 <- sample_data(ps)[,"DNAconc"]
+ps.asv2 <- merge(ps.asv, tmp1, by="row.names", all=TRUE)  
+rownames(ps.asv2) <- ps.asv2$sampleID
+ps.asv2[,"Row.names"] <- NULL
+
+# Compare ASVs against DNA yield
+pl.asv_dna.scp <- ggplot(ps.asv2, aes(x=DNAconc, y=ASVs)) + 
+  geom_point()+
+  geom_smooth(method=lm)
+rm(tmp1, tmp2)
+
+# Visualize
+ggarrange(pl.asv_dna.scp, pl.asv_red.scp, ncol=2, nrow=1)
+```
+
+* Now we can decide:
+  + Is the number of ASVs biased by the DNA extraction yields?
+  + Is the number of ASVs biased by the sequencing depth?
+  + How would you address these biases?
+
+## Decontamination and Composition
+
+A PCR reaction can effectively amplify templates even more diluted than 1 copy per 50 uL. Unfortunately, this means that it can also amplify undesired *rrn* copies from contaminant genomic DNA present in the sample, such as host's mitochondria and chloroplasts, bacteria in transit in the environment, human contaminantion due to sample handling, or minute amounts of genomic DNA present in the reagents. The effect will be even larger in samples with very low biomass of the desired community. 
+
+There are many ways to control for contaminants, but none is standardized. Monitoring total DNA extracted before preparing the libraries is a good way to detect low-yield samples. Running *blank* or *ghost* DNA extractions (without the desired tissue or sample) are good to detect contaminants in reagents. Here, we will use two very basic methods: using previous knowledge about community composition, and identifying low abundance ASVs.
+
+First of all, we will search for sequences assigned to mitochondria from the yeasts or chloroplasts from the figs and raisins. 
+
+```{r echo=TRUE, eval=TRUE}
+rank_names(ps)
+
+# Check if there are any ASVs classified as eukaryotic or NA
+get_taxa_unique(ps,"Kingdom")
+```
+
+```{r echo=TRUE, eval=TRUE}
+# Check for ASVs classified as chloroplasts or mitochondria
+tax_table(subset_taxa(ps, Order=="Chloroplast"))
+tax_table(subset_taxa(ps, Family == "Mitochondria"))
+
+# Remove ASVs assigned to chloroplasts or mitochondria
+euk.asv <- subset_taxa(ps, Family=="Mitochondria" | Order== "Chloroplast")
+tmp <- as(tax_table(euk.asv),"matrix")
+tmp <- rownames(tmp)
+tmp_df <- as.factor(tmp)
+toKeep <- setdiff(taxa_names(ps),tmp_df)
+ps.decon <- prune_taxa(toKeep, ps)
+ntaxa(ps) 
+ntaxa(ps.decon) + ntaxa(euk.asv)  
+
+rm(tmp,tmp_df)
+```
+Your object *ps.decon* should not contain any ASVS classified as chloroplasts or mitochondria.
+
+Now let's see what is the composition of each sample and how similar it is to what has been previously published. 
+```{r echo=TRUE, eval=TRUE}
+## First lets count how many Phyla are in each sample
+get_taxa_unique(ps.decon,taxonomic.rank = "Phylum")
+
+# Then lets visualize the barplot
+plot_bar(ps.decon, x="id_sample", fill="Species", title = "Composition @ Species level") + 
+  theme(legend.position = "none")
+```
+
+* In this barplot, each bar corresponds to one sample, and its height corresponds to the total number of reads in it. Each box inside the bars  represent one ASVs in that sample, and their size is proportional to the abundance of that ASV in that sample. The ASV boxes are coloured by their assigned species (but more on this later). 
+  + How efficient was the taxonomic classification?
+  + Are there any dominant ASVs?
+  + Is this similar to what has been reported in the literature?
+
+## Filtering your dataset
+By now you probably realized that there are lots of low-prevalence and low-abundance (*rare*) ASVs in our samples, that are either contaminats or simply noise in our dataset. Thus we will now filter ASVs that are too rare and in very few samples, and retain those with larger abundance and prevalence. 
+
+To counter the differences in sequencing depth, we will transform our data with absolute read counts to proportions, where the sum of all reads per sample equals 1. Then we will retain only ASVs whose relative abundance is larger than 1% (0.01) in at least 1 sample. In this way, we can keep ASVs that are relatively abundant in a few samples too. 
+```{r echo=TRUE, eval=TRUE}
+library(genefilter)
+ps.prop = transform_sample_counts(ps.decon, function(x) {x/sum(x)})
+ps.filt = filter_taxa(ps.prop, filterfun(kOverA(1, 0.01)), TRUE)
+
+# Then save an object with the same ASVs but with raw counts
+toKeep <- taxa_names(ps.filt)
+ps.rawfilt <- prune_taxa(toKeep, ps)
+
+# Fix tax_table
+tmptax <- data.frame(tax_table(ps.filt))
+setdiff(tmptax$Species.1,tmptax$Species)
+tmptax["ASV4","Species"] <- "paracasei"
+tmptax$Species.1 <- NULL
+tmptax$Linnaeus <- paste(tmptax$Genus,tmptax$Species )
+tmptax$fullName <- paste(tmptax$Linnaeus,rownames(tmptax) )
+tax_table(ps.filt) <- as.matrix(tmptax)
+tax_table(ps.rawfilt) <- as.matrix(tmptax)
+
+# Plot again at Genus level
+plot_bar(ps.filt, x="id_sample",fill="Genus") 
+plot_bar(ps.rawfilt, x="id_sample",fill="Genus") 
+
+# Plot at species level
+plot_bar(ps.filt, x="id_sample",fill="Linnaeus" ) +
+  theme(legend.title=element_blank(),legend.text = element_text(size = 8), legend.position="right")+
+  guides(color=guide_legend(ncol=1, byrow=FALSE))
+plot_bar(ps.rawfilt, x="id_sample",fill="Linnaeus" ) +
+  theme(legend.title=element_blank(),legend.text = element_text(size = 8), legend.position="right")+
+  guides(color=guide_legend(ncol=1, byrow=FALSE))
+```
+
+# Diversity Analyses
+Now that we have cleaned and filtered our dataset, we can perform the proper diversity analyses. 
+
+## Alpha diversity
+Let's finally have a look at the local, individual,  diversity *Alpha diversity* in the sample. 
+
+* We will calculate three indicies:
+  + *Observed* is the total number of ASVs in the sample, equal to *Richness*
+  + *Simpson* is the probability of encounter, and thus a measure of dominance.
+  + *Shannon* is a measure of evenness, weighing equally richness and abundance. 
+
+```{r echo=TRUE, eval=TRUE}
+pl.alpha <- plot_richness(ps.rawfilt, color = "treatment", x="treatment", measures=c("Observed","Shannon", "Simpson"))
+pl.alpha.box <- pl.alpha + geom_boxplot()
+plot(pl.alpha.box)
+
+# Let's run a simple ANOVA on richness (the other metrics are non-linear)
+ps.alpha <- estimate_richness(ps.rawfilt, measures=c("Observed","Shannon", "Simpson"))
+ps.dataA <- cbind(sample_data(ps.rawfilt), ps.alpha)
+ps.dataA$reads <- sample_sums(ps)
+ps.alpha.aov <- aov(Observed ~ treatment + reads + DNAconc, ps.dataA)
+summary(ps.alpha.aov)
+```
+
+* Do you see any differences across treatments?
+  + Is there a higher diversity in the treatments than in the starting culture? How can you explain this?
+  + What biases do you think that could be at play here?
+
+## Composition
+Lets plot again the community compositions, but now aggregating samples by their treatment. You can also aggregate them according to other variables in the sample_data!  
+```{r echo=TRUE, eval=TRUE}
+# Plot the raw read counts to visualize sequencing depth too
+pl.com.raw <- plot_bar(ps.rawfilt, x="id_sample",fill="Linnaeus") +        
+  facet_wrap(~treatment, scales="free_x", nrow=1) +
+  theme(legend.title=element_blank(),legend.text = element_text(size = 8), legend.position="bottom")+
+  guides(color=guide_legend(ncol=6, byrow=FALSE))
+pl.com.raw
+
+# Plot the proportions to better compare the communities
+pl.com.pro <- plot_bar(ps.filt, x="id_sample",fill="Linnaeus") +        
+  facet_wrap(~treatment, scales="free_x", nrow=1) +
+  theme(legend.title=element_blank(),legend.text = element_text(size = 8), legend.position="bottom")+
+  guides(color=guide_legend(ncol=6, byrow=FALSE))
+pl.com.pro
+```
+
+* After inspecting the plots...
+  + Do you see any pattern between treatments?
+  + How much influence do you think the starting culture had on the rest of the samples?
+  
+* EXTRA: Those who are super enthusiastic could try to prepare a composition barplot with only ASVs assigned to family Lactobacillaceae, because it is so dominant.
+
+## Beta diversity
+Now we are going to quantify how (dis)similar our communities are. We will use two distance metrics, and visualize them with an ordination.
+```{r echo=TRUE, eval=TRUE}
+# Ordinate using Principal Coordinate Analysis & NMDS
+ps.nmds.bray <- ordinate(ps.rawfilt, "NMDS", "bray",trymax=50)
+
+# Check stress level and dimensions used
+ps.nmds.bray
+# Plot NMDS
+pl.nmds.bray <- plot_ordination(ps.rawfilt, ps.nmds.bray,color="treatment",title="NDMS of Bray-Curtis dissimilarities",label="id_sample" ) +
+  stat_ellipse(aes(group = inoculum))
+pl.nmds.bray
+```
+And lets test if the differences in the composition of communities from the same group are smaller than between groups using a Permutational Multivariate ANOVA (PerMANOVA)
+```{r echo=TRUE, eval=TRUE}
+# Calculate Bray-Curtis distance
+ps.bray <- phyloseq::distance(ps.rawfilt,"bray")
+
+# Test with ADONIS
+ps.adonis.int <- adonis2(ps.bray ~ reads + (inoculum*fruit), data = ps.dataA, perm =9999)
+ps.adonis.int
+```
+

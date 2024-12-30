@@ -1,0 +1,295 @@
+---
+output:
+  html_document:
+    title: "220929_Tutorial3_IlluminaQC"
+    number_sections: yes
+    theme: readable
+    highlight: tango
+    df_print: paged
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: yes
+  pdf_document:
+    toc: yes
+editor_options:
+  chunk_output_type: console
+---
+<!-- comment out for pdf compiling -->
+<style>
+    h1.title {
+        font-size: 40px;
+        font-family: Serif;
+        text-align: center;
+        font-weight: normal;
+        /* color: DarkRed; */
+    }
+    h1 {
+        font-size: 24px;
+        font-family: Serif;
+        font-weight: bold;
+        /* font-weight: bold; */
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    h2 {
+        font-size: 22px;
+        font-family: Serif;
+        font-weight: bold;
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    h3 {
+        font-size: 20px;
+        font-family: Serif;
+        font-weight: bold;
+        /* text-align: center; */
+        /* color: DarkRed; */
+    }
+    body .main-container {
+        /* max-width: 1000px; */
+        font-size: 18px;
+        font-family: Serif;
+    }
+</style>
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 80)
+```
+
+```{css echo=FALSE}
+/* To make hoverable links. (does not have to be called hint) Usage: */
+/* [Message to show on hover]{.hint} */
+.hint {
+  visibility: hidden;
+}
+
+.hint::before {
+  visibility: visible;
+  content: "Hint";
+  color: blue;
+}
+
+.hint:hover {
+  visibility: visible;
+  font-weight: bold;
+}
+
+.hint:hover::before {
+  display: none;
+}
+```
+
+
+```{r setup ,echo=FALSE}
+knitr::opts_chunk$set(message=FALSE, echo=FALSE, eval=FALSE,warning = FALSE)
+knitr::opts_chunk$set(engine.opts = list(bash = "-l"))
+```
+
+
+# QC and trimming tutorial {-}
+
+# Writing the script for the QC of the raw reads.
+
+You will first need to create a script that will perform the quality assessment of the reads yielded by the sequencing.
+- Connect to curnagl, go to your scratch directory, create a working directory, and import the files:
+  
+```bash
+ssh <username>@curnagl.dcsr.unil.sh
+cd /scratch/jgianott/SAGE/SAGE2022_2023/<username>/
+mkdir 00_rawreads
+cp /scratch/jgianott/SAGE/SAGE2022_2023/common_files/raw_data/<genome_ID>* ./00_rawreads
+```
+- You can have a look at the files you just copied. Do you understand the structure?
+  
+```bash
+cd 00_rawreads
+less <yourfile>
+```
+
+## Create the script. Here we will use the `template.sh` file as a base.
+
+```bash
+cp /scratch/jgianott/SAGE/SAGE2022_2023/common_files/tutorial_2/template.sh ./run_fastqc.sh
+```
+
+Modify it like the following lines in it (*jobname, username, mem, time*):
+  
+```bash 
+#!/bin/bash -l
+#SBATCH --partition cpu
+#SBATCH --account jgianott_sage
+#SBATCH --job-name QC_<genomeID>
+#SBATCH --output /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/log_%x_%j.out
+#SBATCH --error /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/log_%x_%j.err
+#SBATCH --nodes 1
+#SBATCH --ntasks 1
+#SBATCH --cpus-per-task 8
+#SBATCH --mem 4G
+#SBATCH --time 00:30:00
+#SBATCH --export NONE
+
+# Load modules
+module load gcc/10.4.0 #module required to run fastqc
+module load fastqc/0.11.9 #fastqc module
+
+# Run
+cd /scratch/jgianott/SAGE/SAGE2022_2023/<username>/00_rawreads
+mkdir QC #create a directory in which the fastqc output will be placed
+fastqc -o QC/ <yourfileID>_R1.fastq.gz <yourfileID>_R2.fastq.gz
+```
+
+Now test-run your script!
+  
+```bash
+sbatch --test-only run_fastqc.sh
+```
+
+Everything went well? Then you can run your script!
+  
+```bash
+sbatch run_fastqc.sh
+```
+
+If you want to check the status of your submitted jobs, you can use:
+  
+```bash
+sacct
+```
+
+## Importing the files on your computer and visualizing it.
+
+The generated files are *.html* formatted and can be visualized in your favorite web browser.
+
+Import the files to your computer using the command `scp`. For this, you need to log out of the cluster or open another terminal to log again!
+```bash
+exit #you first need to quit ssh (and the connection to the cluster)
+
+# Then the following should be run in your terminal of your local computer (NOT on the cluster)
+scp -r <username>@curnagl.dcsr.unil.ch:/scratch/jgianott/SAGE/SAGE2022_2023/<username>/00_rawreads/QC ./ #scp's arguments and options are similar to cp's
+```
+You can now open the html files you just downloaded with your favorite web browser.
+
+
+## Trimming the reads.
+
+You now want to trim the read and to remove the bad quality reads. For this we use the *trimmomatic* tool.
+
+Go back to the cluster in your scratch directory, or go back to the terminal that is connected to the cluster. 
+
+```bash
+ssh <username>@curnagl.dcsr.unil.sh
+cd /scratch/jgianott/SAGE/SAGE2022_2023/<username>/
+```
+
+Create the script. We can also use the *template.sh* file as a base.
+
+```
+cp template.sh run_trimmomatic.sh
+```
+
+Now write the script for the trimming of your reads.
+
+*run_trimmomatic.sh*
+```bash
+#!/bin/bash -l
+#SBATCH --partition cpu
+#SBATCH --account jgianott_sage
+#SBATCH --job-name Trim_<genomeID>
+#SBATCH --output /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/log_%x_%j.out
+#SBATCH --error /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/log_%x_%j.err
+#SBATCH --nodes 1
+#SBATCH --ntasks 1
+#SBATCH --cpus-per-task 8
+#SBATCH --mem 4G
+#SBATCH --time 00:30:00
+#SBATCH --export NONE
+
+# Load software
+module load gcc/10.4.0
+module load trimmomatic/0.39
+
+cd /scratch/jgianott/SAGE/SAGE2022_2023/<username>/00_rawreads
+
+trimmomatic PE -threads 8 <genome_ID>_R1.fastq.gz <genome_ID>_R2.fastq.gz 01_<genome_ID>_R1_paired.fastq.gz 01_<genome_ID>_R1_unpaired.fastq.gz 01_<genome_ID>_R2_paired.fastq.gz 01_<genome_ID>_R2_unpaired.fastq.gz ILLUMINACLIP:/scratch/jgianott/SAGE/SAGE2022_2023/common_files/NexteraPE-PE.fa:4:25:8 SLIDINGWINDOW:5:26 MINLEN:50
+```
+
+Test-run your script!
+```bash
+sbatch --test-only run_trimmomatic.sh
+```
+
+Everything went well? Then you can run your script!
+```bash
+sbatch run_trimmomatic.sh
+```
+
+If you want to check the status of your submitted jobs, you can use:
+```bash
+sacct
+```
+
+## Checking quality again.
+Edit your `run_fastqc.sh` script to run on your newly generated files. 
+Note that we will work with reads that belong to read pairs, and therefore only with the *paired* files we generated.
+
+```bash
+nano run_fastqc.sh
+```
+
+Write the following lines in it:
+
+*run_fastqc.sh*
+```bash
+#SBATCH --partition cpu
+#SBATCH --account jgianott_sage
+#SBATCH --job-name Trim_<genomeID>
+#SBATCH --output /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/log_%x_%j.out
+#SBATCH --error /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/log_%x_%j.err
+#SBATCH --nodes 1
+#SBATCH --ntasks 1
+#SBATCH --cpus-per-task 8
+#SBATCH --mem 4G
+#SBATCH --time 00:30:00
+#SBATCH --export NONE
+
+# Load software
+module load gcc/10.4.0
+module load trimmomatic/0.39
+
+# Run
+cd /scratch/jgianott/SAGE/SAGE2022_2023/<username>/00_rawreads
+mkdir 01_trim #create a directory in which the fastqc output will be placed
+fastqc -o 01_trim/ <yourfileID>_R1_paired.fastq.gz <yourfileID>_R2_paired.fastq.gz
+```
+Now test-run your script!
+  
+```bash
+sbatch --test-only run_fastqc.sh
+```
+
+Everything went well? Then you can run your script!
+  
+```bash
+sbatch run_fastqc.sh
+```
+
+If you want to check the status of your submitted jobs, you can use:
+
+```bash
+sacct
+```
+
+## Check FastQC files again
+Now bring back the files to your computer
+You can now open the html files you just downloaded with your favorite web browser.
+
+* A useful trick is to quickly count the reads in each FASTQ file to compare them Remember that in the FASTQ format, each sequence occupies 4 lines (1) header, (2) nt sequence, (3) a '+' sign, (4) Qscores. So you can quickly use `wc` to count the number of lines and divide by 4. Compare how many sequences you have, and perhaps adjust your trimmomatic quality score accordingly (the default in our example is to use a sliding window and remove everything when the quality score drops below Q=26)
+```bash
+# You can use a for loop to count all files:
+for i in *gz; do
+echo ${i}
+echo $(zcat ${i} | wc -l) /4 | bc
+done
+```
+* In the script above, `zcat` is like a `cat` that can read into compressed (.gz) files. Then `wc -l` will count the number of lines, and divide by 4 `/4`. You should recall that `echo` will simply print whatever you tell it to print on screen, in this case you're using `$( )` to run the calculation as a subcommand, and piping it to `bc` (basic calculator) to tell it to execute as an arithmetic operation. 

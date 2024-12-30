@@ -1,0 +1,707 @@
+---
+title: "Read mapping and visualisation"
+date: 11-10-2022
+# output:
+#   pdf_document:
+# urlcolor: Mahogany
+# linkcolor: Mahogany
+# latex_engine: texlive
+# header-includes:
+#   - \usepackage{color}
+#   - \usepackage[fontsize=9pt]{scrextend}
+# geometry: margin=0.75in
+# toc: true
+output:
+  html_document:
+    theme: united
+    highlight: tango
+    # code_folding: hide
+    df_print: paged
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+
+```{css echo=FALSE}
+/* To make hoverable links. (does not have to be called hint) Usage: */
+/* [Message to show on hover]{.hint} */
+.hint {
+  visibility: hidden;
+}
+
+.hint::before {
+  visibility: visible;
+  content: "Hint";
+  color: blue;
+}
+
+.hint:hover {
+  visibility: visible;
+  font-weight: bold;
+  transition-duration: 10s;
+}
+
+.hint:hover::before {
+  display: none;
+}
+```
+
+```{r setup, include=FALSE}
+# knitr::opts_knit$set(root.dir = '/Volumes/FBM/DMF/GROUPS/gr_Engel/aprasad/Coursework/SAGE2020/201023_Tutorial4_Read_Mapping')
+# bash is invoked with the R function system2() which ignores ~/.bash_profile etc.
+# If you want these profile files to be executed just like when you use the terminal, you may pass the argument -l to bash via engine.opts
+knitr::opts_chunk$set(engine.opts = list(bash = "-l"))
+# load libraries
+library(ggplot2)
+```
+
+# Intro
+
+In the previous tutorial (Genome assembly and validation), we removed spurious contigs (small and/or with a low K-mer coverage).
+
+In this second assembly validation tutorial, we will map the reads back to the assemblies to get an idea of how well the reads support the assemblies. The mapping will be done on the cluster, and you will generate the coverage plots on your own computer using *_R_*.
+
+You will need:
+
+* Your assembly file (with the small contigs removed)
+  + In the previous tutorial we had copied it out of the assembly directory, filtered and named it `03_<ESL0xxx>_contigs_filtered.fasta`
+* The quality-filtered reads that were used for the assembly.
+  + They were called `01_<ESL0xxx>_R1_paired.fastq.gz` and `01_<ESL0xxx>_R2_paired.fastq.gz`.
+* The corresponding concatenated version (containing a single header and the concatenated contigs sequences)
+  + We will concatenate them in the first part of the tutorial.
+
+By now, you are expected to know how to copy files between your computer and the cluster, and to find and to load software. These commands are therefore not provided in this tutorial. If you have forgotten how to do these things, go back to the previous tutorials.
+
+# Part 1 : Mapping reads against the assembly
+
+## Preparation
+
+Prepare your working directory for this session -
+
+1. Log-in to the cluster
+
+2. Navigate to your working directory in the sage main directory)
+
+3. Create a new directory called `03_ReadsMapping` for the analysis. Within this directory you need to copy:
+
+    * The filtered reads (`01_<ESL0xxx>_R1_paired.fastq.gz` and `01_<ESL0xxx>_R2_paired.fastq.gz`)
+    * The filtered assembly file (`03_<ESL0xxx>_contigs_filtered.fasta`)
+
+4. Follow the tutorial to create a concatenated version of the assembly (a single header and the concatenated contigs sequences)
+
+### Creating the concatenated file
+
+In order to make the read mapping and plotting easier, you will start by concatenating the contigs into a single sequence. This can be accomplished in several ways (R, python, ..). Here is a quick version using bash commands.
+
+First, generate a new file containing a single fasta header (for example, the contig header name will be _concat\_\<ESL0xxx\>_ and the new file _concat\_\<ESL0xxx\>.fasta_).
+
+```{bash engine.opts="-l", eval=FALSE}
+# ! Adapt the header name and the file name to your own file !
+echo ">concat_<ESL0xxx>" > concat_<ESL0xxx>.fasta
+```
+
+Take a look inside the file with `less`. What do you see ? Do you understand the command line you executed ?
+
+Now, add the contig sequences to the file, but exclude the headers !
+
+```{bash engine.opts="-l", eval=FALSE}
+# ! Adapt the names to your own file !
+cat 03_<ESL0xxx>_contigs_filtered.fasta | grep -v '>' >> concat_<ESL0xxx>.fasta
+```
+
+- What does the `-v` option do ?
+- What is the difference between the single `'>'` and the double `'>>'` arrows ?
+- Check your file with less
+- How can you make sure you only have one header ?
+
+## Mapping the reads
+
+For this section we will run a series of commands in a batch script that we will call `run_bwa.sh`. The steps that you will execute in this script are described below.
+
+Use the same Slurm options that you used in `run_spades.sh`. [Remember to rename the error and output files]{.hint}
+
+### Exercise 1.1: Loading the software {.tabset .tabset-fade .tabset-pills}
+
+Find and load the software. We will need `samtools` and `bwa`. Check the software versions and use `module load` to load the modules and `spider` to check any dependencies
+
+#### DIY {.unnumbered}
+
+```{bash engine.opts="-l", eval=FALSE}
+...
+module spider <software>
+module load <software>
+...
+...
+module avail
+```
+
+Expected result: bwa and samtools should be available "in your path". In plain english, if you type "samtools" or "bwa" in the terminal, you should get some instructions for how to uses the programs. [If you use module avail to check, you should see (L) next to the module(s) you need]{.hint}
+
+#### Hints {.unnumbered}
+```{bash engine.opts="-l", eval=FALSE}
+
+######Loading samtools ######
+module spider samtools
+# ------------------------------------------
+#   samtools: samtools/1.12
+# ------------------------------------------
+#
+#     You will need to load all module(s) on any one of the lines below before the "samtools/1.12" module is available to load.
+#
+#       gcc/9.3.0
+#
+#     Help:
+#       SAM Tools provide various utilities for manipulating alignments in the
+#       SAM format, including sorting, merging, indexing and generating
+#       alignments in a per-position format
+
+# check with module avail if gcc and intel modules are already loaded. Else :
+module load gcc
+module load samtools
+
+###### Loading bwa ######
+# module spider bwa/0.7.17
+# ------------------------------------------
+#   bwa: bwa/0.7.17
+# ------------------------------------------
+#
+#     You will need to load all module(s) on any one of the lines below before the "bwa/0.7.17" module is available to load.
+#
+#       gcc/9.3.0
+#
+#     Help:
+#       Burrow-Wheeler Aligner for pairwise alignment between DNA sequences.
+module load bwa/0.7.17
+# To check if the modules are correctly loaded
+module avail
+```
+> Do now
+Create your script `run_bwa.sh` (inside your new 03_ReadsMapping directory) and add the appropriate lines into your script to load bwa and samtools. [Have a look at your previous scripts if you do not remember how to do this]{.hint}
+
+### Indexing the concatenated assembly fasta-file
+
+Before mapping the reads, the concatenated assembly fasta-file needs to be indexed. An index is a data structure technique which allows to quickly access data and records from a file.
+
+```{bash engine.opts="-l", eval=FALSE}
+bwa index concat_<ESL0xxx>.fasta
+```
+
+> Do now
+Add the bwa index command from the above code chunk to your script
+
+### Mapping the reads to the assembly
+
+The mem command "aligns 70bp-1Mbp query sequences with the BWA-MEM algorithm. Briefly, the algorithm works by seeding alignments with maximal exact matches (MEMs) and then extending seeds with the affine-gap Smith-Waterman algorithm (SW)." _source:_ http://bio-bwa.sourceforge.net/bwa.shtml
+
+```{bash engine.opts="-l", eval=FALSE}
+bwa mem concat_<ESL0xxx>.fasta 01_<ESL0xxx>_R1_paired.fastq.gz 01_<ESL0xxx>_R2_paired.fastq.gz > <ESL0xxx>.sam
+```
+
+>Do now
+Add the `bwa mem` command to your script
+
+
+### Convert the sam file to a bam file
+
+
+```{bash engine.opts="-l", eval=FALSE}
+samtools view -b <ESL0xxx>.sam > <ESL0xxx>.bam
+```
+
+>Do now
+Add the `samtools view` command to your script
+
+
+### Sort the bam file
+
+Now, you need to sort the reads according to their mapping position
+
+```{bash engine.opts="-l", eval=FALSE}
+samtools sort <ESL0xxx>.bam > <ESL0xxx>_sorted.bam
+```
+>Do now
+Add the `samtools sort` command to your script
+
+### Coverage per base
+
+In order to (later) plot the base coverage, you need to generate a text-file with the coverage per base information.
+
+```{bash engine.opts="-l", eval=FALSE}
+samtools depth -a <ESL0xxx>_sorted.bam > <ESL0xxx>_depth.txt
+```
+>Do now
+Add the `samtools depth` command to your script
+
+### Exercise 1.2: Read mapping {.tabset .tabset-fade .tabset-pills}
+
+#### Questions {.unnumbered}
+
+* Run the script. What the outputs produced? Do you understand them all?
+
+#### Hints {.unnumbered}
+
+Below is a brief description of the output expected from each command in your script.
+
+This is how your script should look
+
+```{bash eval=FALSE}
+#!/bin/bash
+
+######### SLURM OPTIONS
+#SBATCH --account jgianott_sage
+#SBATCH --job-name read_mapping
+#SBATCH --nodes 1
+#SBATCH --ntasks 1
+#SBATCH --cpus-per-task 8
+#SBATCH --mem 6G
+#SBATCH --time 1:00:00
+#SBATCH --export NONE
+#SBATCH --error /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/read_mapping.err
+#SBATCH --output /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/read_mapping.out
+
+######### COMMANDS TO LOAD MODULES
+
+module load gcc
+module load bwa
+module load samtools
+
+##### VARIABLES
+username=<username>
+genome_id=<ESL0xxx>
+
+##### Execute commands
+
+#move to the directory 03_ReadMapping
+cd /scratch/jgianott/SAGE/SAGE2022_2023/${username}/03_ReadsMapping
+
+#execute the indexing, mapping, conversion to BAM, sorting BAM and depth:
+bwa index concat_${genome_id}.fasta
+bwa mem concat_${genome_id}.fasta 01_${genome_id}_R1_paired.fastq.gz 01_${genome_id}_R2_paired.fastq.gz > ${genome_id}.sam
+samtools view -b ${genome_id}.sam > ${genome_id}.bam
+samtools sort ${genome_id}.bam > ${genome_id}_sorted.bam
+samtools depth -a ${genome_id}_sorted.bam > ${genome_id}_depth.txt
+
+```
+
+Description of the output expected from each command
+
+* `bwa mem concat_<ESL0xxx>.fasta 01_<ESL0xxx>_R1_paired.fastq.gz 01_<ESL0xxx>_R2_paired.fastq.gz > <ESL0xxx>.sam`
+
+  Expected result: A sam-file, with mapping information for each read (whether it mapped or not, where and how).
+    - Have a look inside the file:
+
+    ```{bash engine.opts="-l", eval=FALSE}
+    *1* K00382:78:HGVN7BBXY:7:1101:8004:1297    # Sequence ID
+    *2* 99      # FLAG = sequence quality expressed as bitwise flag
+    *3* CG1.ordered.fasta       # Rname = contig where the read mapped
+    *4* 1595631   # POS = Starting position
+    *5* 60      # MAPQ = Mapping quality
+    *6* 141M    # CIGAR = Describe the position of matches, insertions, deletions with respect to the reference ;  M	alignment match ; I	insertion ; D	deletion
+    *7* =        # RNEXT = Ref. name of mate read
+    *8* 1595690  # PNEXT = Position of mate read
+
+    *9* 210    # TLEN = Observed template length
+    *10* AAGCTAAAGTTGCGGGCCACGACATAGACCCCAACTGTCCCACAAGTAATTGCAATAAACGTGCTGGCCAAAAAGGCGTTGCGCATAAATGGTAATGCAAACATTATTCGTACGCCTCCTCAAACTGGGACATCTTGCCCT   # SEQ = Sequence
+    *11* AAFFA<FJFJ<F<-A7AJFJJJJFFJFFJJJJJJJJJFJFJJJJFJFFFJ<AJJJ7FFJJJAFF-AFFJFJJJJ-A<FAJFJJJJJJJJFJJJJJA7FJJJJF-AFFJF77FJ7JF7AAJJJFAFFF7-7AF-AAA-AFFA   # QUAL = Base qualities
+    ```
+* `samtools view -b <ESL0xxx>.sam > <ESL0xxx>.bam`
+  Expected result: A bam-file, which is a binary version of the sam-file, and therefore considerably smaller.
+    - What happens if you try to look at the file ?
+
+    ```{bash engine.opts="-l", eval=FALSE}
+    p[<FA>8Ҡ#<BA>C<B0>H{e<D5><D4>^B*;<9B>)^^<CD>^ATKsӾi<98>f<A4><F5>!<A7><CD><L<FD>^H<88>@<A4><82>        <C6>^R.d^A<93><D1>.<89><B4><A0>:<94>Z^]<8F>n
+    ```
+* `samtools sort <ESL0xxx>.bam > <ESL0xxx>_sorted.bam`
+
+  Expected result: A second bam-file. Try `samtools view <ESL0xxx>.bam | less` and `samtools view <ESL0xxx>_sorted.bam | less` to look inside the bam file.
+    - Can you see how it has changed ?
+
+* `samtools depth -a <ESL0xxx>_sorted.bam > <ESL0xxx>_depth.txt`
+
+  Expected result: A tab-delimited text-file with three columns. Take a look !
+    - What is the -a flag used for ?
+
+# Part 2 : Plotting read coverage in R
+
+> Do now first:
+
+1. Copy your <i>\<ESL0xxx\>_depth.txt</i> file from curnagl to your local computer with the `scp` command.
+2. Open a new R script and save it as _readcoverage.R_ in the same folder as where you saved <i>\<ESL0xxx\>_depth.txt</i>. It is recommended to make a specific folder for this on your computer where you store all the files for this tutorial.
+3. Set your working directory to the folder where you saved both the script and the text file.
+
+Save all code you make in this tutorial in this script and run it from there.
+
+```{bash engine.opts="-l", eval=FALSE, echo = FALSE}
+scp <yourusername>@curnagl.dcsr.unil.ch:<path/to/file/<ESL0xxx>_depth.txt /path/to/copy/to
+```
+
+## Read the data into R and check format
+
+There are multiple functions to read text files into R with different default parameters, `read.table()` is a simple one for this instance:
+
+
+```{r, eval = FALSE}
+my_cov <- read.table("<ESL0xxx>_depth.txt")
+# this works too of course, but we avoided the need by setting the working directory
+my_cov <- read.table("full/path/to/<ESL0xxx>_depth.txt")
+```
+
+```{r, echo=FALSE}
+my_cov <- read.table("ESL0961_depth.txt")
+```
+
+
+Always first check the object you have read into R. It's better not to run the entire object (i.e. to run `my_cov`), since it has many rows. Instead use e.g.:
+
+```{r}
+head(my_cov, n = 3) # first 3 lines
+str(my_cov)         # structure
+dim(my_cov)         # dimensions (rows, columns)
+summary(my_cov)     # summary statistics per column
+```
+
+This tells us we have `r nrow(my_cov)` base pairs (rows) on each of which we have `r ncol(my_cov)` variables (columns) with information. The first variable is simply the name of the file you used as input to compute read depth (character class). In other cases, it can for instance contain the contig names. The second variable represents the locus (base pair) and just counts from one to the maximum number of base pairs: `r max(my_cov$V2)`. Since it only has whole numbers (no decimals), it is of class integer. That is also true for the third variable, which is what we are primarily interested in right now: the read depth, or coverage.
+
+It is good practice to give variables an interpretable name, instead of the current `V1`, `V2` and `V3`:
+```{r}
+colnames(my_cov)
+colnames(my_cov) <- c("Genome", "Locus", "Depth")
+head(my_cov)
+```
+
+### Exercise 2.1: check data {.tabset .tabset-fade .tabset-pills}
+
+**Remember to write your code in your new R script _readcoverage.R_. Save it every now and then and run your code from there.**
+
+#### Questions {.unnumbered}
+
+1. Read your <i>\<ESL0xxx\>_depth.txt</i> file into R as an object called `my_cov`, like above.
+2. Check if R read the file correctly and give the variables short, easy-to-interpret names.
+3. How many points would you be plotting if you would now plot the coverage (`Depth`) per base (`Locus`)? (Do not make this plot.)
+
+#### Answers {.unnumbered}
+
+```{r eval = FALSE}
+# 3.
+nrow(my_cov)
+#or
+length(my_cov$Locus)
+```
+
+## Calculating average read coverage per window
+
+We could plot all loci as a function of their depth. However, that's a lot of data to plot (`r nrow(my_cov)` points for this example) and that might make R, or your computer, crash. Alternatively, we can simplify by computing the average coverage in windows. Again, there are many ways to do this so you are encouraged to find your own method, but we will show one below.
+
+Say we want to calculate the average coverage per bin of 100 base pairs. However, it is very unlikely that the number of bp of your genome is *exactly* divisible by 100. You could try to find the closest divisor to 100 by which you _can_ divide your bp. Here we use a different work-around though, using some standard R functions: some bins will have 100 bp while we allow others to have 99. Here is how many bins we need for that:
+```{r}
+nrow(my_cov) / 100          # total nr of bp not exactly divisible by 100
+ceiling(nrow(my_cov) / 100) # instead, divide in so many approximately equal parts
+```
+
+We store the number of desired bins in an object called `n_bins` and use it to cut the data with the `cut()` function. This will create the index numbers we need:
+```{r}
+n_bins <- ceiling(nrow(my_cov) / 100)
+bin_assign <- cut(my_cov$Locus, breaks = n_bins, labels = FALSE)
+head(bin_assign, n = 210)
+```
+
+For clarity of what is happening here, we can add the indices to the data frame:
+
+```{r}
+my_cov$bin <- bin_assign
+head(my_cov, n = 3); tail(my_cov, n = 3)
+```
+So we simply assign each base pair to an index number, grouping bp together in bins of about 100.
+
+We can see how many data points will be assigned to each bin using these indices:
+```{r}
+head(table(bin_assign)) # table() tabulates the nr of occurrences of each instance
+```
+
+Or we can see how many bins will have 99 and how many will have 100 data points:
+```{r}
+table(table(bin_assign)) # so here we tabulate the number of times we counted 99 or 100
+```
+Do you understand the code and its output?
+
+Now we want to compute the mean read depth per bin. To this end, we can use the `tapply()` function, which applies a given function `FUN` to a given object `X` for each given `INDEX`:
+```{r}
+# compute mean depth per bin
+Depth_bin <- tapply(X = my_cov$Depth, INDEX = my_cov$bin, FUN = mean)
+# compute corresponding mean locus per bin
+Locus_bin <- tapply(X = my_cov$Locus, INDEX = my_cov$bin, FUN = mean)
+# put together in data frame
+my_cov_bin <- data.frame("Locus" = Locus_bin,
+                         "Depth" = Depth_bin)
+# check made data frame
+head(my_cov_bin)
+```
+
+Lastly, we want to plot the loci in kbp, or kb, instead of in bp, so that we do not have that many zeroes on our x-axis labels (i.e. for plot readability). So, we make an extra variable in the data frame like this:
+```{r}
+my_cov_bin$LocusKB <- my_cov_bin$Locus / 1000
+head(my_cov_bin)
+```
+
+Now we have a data frame with per 100bp-bin the average read depth and the locus around which we computed it. Ready for plotting!
+
+### Exercise 2.2: Preparing data to plot
+
+**Remember to write your code in your new R script _readcoverage.R_. Save it every now and then and run your code from there.**
+
+1. Compute mean coverage per 100 bp bin from your `my_cov` object and turn it into a data frame called `my_cov_bin`, as above.
+2. Add a variable with the loci in kb, instead of bp.
+3. Check if your data frame is correct using functions as `head()`, `tail()` and `summary()`.
+
+## Plot read coverage per window
+
+We can plot using the functions available in R base...
+
+```{r}
+plot(Depth ~ LocusKB,
+     data = my_cov_bin,
+     type = 'l',
+     xlab = "Locus (kb)")
+```
+
+...or with ggplot, as before.
+
+```{r, message=FALSE}
+# first load the package, install if necessary
+#install.packages("ggplot2")
+library(ggplot2)
+```
+
+```{r}
+ggplot(my_cov_bin, aes(x = LocusKB, y = Depth)) +
+  geom_line() +
+  labs(x = "Locus (kb)") +
+  theme_bw(base_size = 16)
+```
+
+### Exercise 2.3: Plotting read coverage
+
+**Remember to write your code in your new R script _readcoverage.R_. Save it every now and then and run your code from there.**
+
+1. Plot the read coverage as in the example above for your own data using `my_cov_bin`. You can use either R base or ggplot, as you prefer.
+
+## Adding a moving average and defining functions in R
+
+This might still look a little noisy, even though we averaged the coverages every ~100 bp. So in addition, we can compute a moving average: replacing every data point by the average of it and its neighbouring data points up- and downstream. There are multiple functions available in R to calculate moving averages, but all of them are originally made for time series, which are linear. In contrast, our bacterial chromosomes are circular: bases close to the start of the genome are in fact close to bases at the end. So for base pairs close to the start, we want to include neighbouring base pairs on the other side of the chromosome in the moving average: we need to read over the "gap" in the linear representation. To achieve this, we will give you a small function we prepared for this in the next chunk of code called `movMeanCirc()`; simply copy, paste into your script and run it to make the function available to use:
+```{r}
+movMeanCirc <- function(depths, window = 500, focus = 1){
+  ####
+  #DESCRIPTION
+  # function to compute sliding window average depth for circular chromosome
+  # around a given focus base pair
+  ##
+  #ARGUMENTS
+  # depths: vector of integers representing read depth
+  # window: nr of bp before and after focus to include in average. Defaults to 500
+  # focus:  index integer indicating around which bp to compute average. Defaults to 1
+  ##
+  #SET-UP
+  # 1. define linear before-after index around focus with given window size
+  # 2. find real, circular before and after index
+  # 3. if before <= end: mean of values within window; else outside window
+  ####
+
+  # max linear index value
+  linear_end <- length(depths)
+  # 1. direct, linear index values
+  index_left <- focus - window
+  index_right <- focus + window
+  # 2. real, circular index values
+  index_before <- ifelse(index_left >= 1,
+                         yes = index_left,
+                         no = linear_end + index_left)
+  index_after <- ifelse(index_right <= linear_end,
+                        yes = index_right,
+                        no = index_right - linear_end)
+  # 3. mean sliding window
+  res <- ifelse(index_before <= index_after,
+                yes = mean(depths[index_before:index_after]),
+                no = mean(depths[-((index_after + 1):(index_before - 1))]))
+  # return result
+  return(res)
+}
+```
+
+Don't worry, we do not expect you to immediately grasp the details behind every line of code here. Some explanation: we defined a function called `movMeanCirc()`, which takes as input a vector of read depth values `depths`, a window size `window` and an index integer `focus` indicating for which of the values of `depths` you want to compute the moving average. It can thus be used like this:
+```{r}
+movMeanCirc(depths = my_cov_bin$Depth, # compute of the read depths...
+            window = 2,                # ...with a window size of 2 before and after...
+            focus = 3)                 # ...the moving average for the 3rd value.
+```
+
+which is indeed the average of the third (`focus = 3`) value of (`depths =`) `my_cov_bin$Depth`, including two (`window = 2`) values before and after the `focus`:
+```{r}
+head(my_cov_bin, n = 5)     # the first 5 rows of the data frame
+my_cov_bin$Depth[1:5]       # the first 5 values of the read depths (focus = 3, window = 2)
+mean(my_cov_bin$Depth[1:5]) # the average of these values
+```
+
+But it can also read over the gap between start and end of the chromosome:
+```{r}
+movMeanCirc(depths = my_cov_bin$Depth,
+            window = 2,
+            focus = 1)
+mean(my_cov_bin$Depth[c(30748:30749, 1:3)]) # since the example has 31254 loci
+```
+
+This is one of the great advantages of coding your own analyses in R: no function exists that does exactly what you need? No problem, you can make it. This makes working in R (or e.g. Python for that matter) extremely versatile.
+
+Now we can use this function to get our sliding window average read depths. We basically want to apply the function `movMeanCirc()` to each bp in `my_cov_bin`. So, the only argument of this function we want to vary, is `focus`: it needs consecutively to have values $1, 2, 3, ...$ etc. all the way to $`r length(my_cov_bin$Depth)`$ (the number of bp in `my_cov_bin`).
+```{r}
+# 1:nrow(my_cov_bin) gives unique index for each bp:
+head(1:nrow(my_cov_bin))
+tail(1:nrow(my_cov_bin))
+```
+
+We use `sapply()` here to apply function `FUN` to all values of `X`, and pass the other arguments that `movMeanCirc()` needs on too:
+```{r}
+# apply function to each index:
+my_cov_bin$SlidingAverage <- sapply(X = 1:nrow(my_cov_bin),    # for every bp...
+                                    FUN = movMeanCirc,         # ...apply the function...
+                                    # (the following arguments are passed to FUN)
+                                    depths = my_cov_bin$Depth, # ...with these read depths...
+                                    window = 500)              # ...and this window size.
+```
+
+In the code chunk above, `sapply()` assumes we want to pass `X` to the argument `focus =` of our function, because it's the only argument we didn't explicitly specify. Additionally, we immediately added the outcomes to a new variable called `SlidingAverage` in the existing data frame:
+```{r}
+head(my_cov_bin)
+```
+
+Now we can use the same data frame to make the same plot as before, but with the sliding average added on top as a blue line.
+```{r, out.width='49%', fig.show='hold'}
+# base R
+plot(Depth ~ LocusKB,
+     data = my_cov_bin,
+     type = 'l',
+     xlab = "Locus (kb)",
+     col = "grey",
+     main = "R base")
+lines(SlidingAverage ~ LocusKB,
+      data = my_cov_bin,
+      col = 'blue')
+
+# ggplot
+ggplot(my_cov_bin, aes(x = LocusKB, y = Depth)) +
+  geom_line(col = "grey") +
+  geom_line(aes(y = SlidingAverage), col = "blue") + # add an extra layer
+  labs(title = "ggplot",
+       x = "Locus (kb)") +
+  theme_bw(base_size = 16)
+```
+
+### Exercise 2.4: Adding details to the plot {.tabset .tabset-fade .tabset-pills}
+
+**Remember to write your code in your new R script _readcoverage.R_. Save it every now and then and run your code from there.**
+
+#### Questions {.unnumbered}
+
+1. Compute the moving averages for your object `my_cov_bin` with a window size of 500, like above. _(Hint: copy the whole chunk of code where we defined `movMeanCirc()` into your script and run it to be able to use it.)_
+2. Add the moving averages as a variable to `my_cov_bin`, as above.
+3. Add the moving average as a line on top of the plot you made in the previous exercise, as in the example above.
+4. What is the total window size you used?
+
+#### Answers {.unnumbered}
+
+```{r eval = FALSE}
+#4. total window size is 1001:
+#   500 loci before the focus,
+#   500 after and
+#   the focus locus itself
+```
+
+## Adding the contig borders
+
+Lastly, it would be nice to add the contig borders to the plot. You have looked at the contig lengths in R before, when you did the contig filtering. Indeed, we can use the same package `Biostrings` to read in the fasta file you used to perform the read mapping.
+
+```{r, message = FALSE}
+library(Biostrings)
+```
+
+Now we need the fasta file, which we copy to our local folder (with the others files and to which you have set your working directory) once more using the `scp` command.
+
+```{bash engine.opts="-l", eval=FALSE}
+scp <yourusername>@curnagl.dcsr.unil.ch:<path/to/file/03_<ESL0xxx>_contigs_filtered.fasta /path/to/copy/to
+```
+
+We read in the fasta file as before:
+
+```{r echo=TRUE, eval=FALSE}
+contigs <- readDNAStringSet("03_<ESL0xxx>_contigs_filtered.fasta")
+contigs
+```
+
+```{r echo=FALSE}
+contigs <- readDNAStringSet("03_ESL0961_contigs_filtered.fasta")
+contigs
+```
+
+Remember, we can simply extract the contig lengths with the function `width()`.
+
+```{r}
+# contig lengths:
+width(contigs)
+```
+
+However, what we need, is the sequential addition of the contig lengths for our plot: the cumulative sums ($contig_1, \, contig_1 + contig_2, \, contig_1 + contig_2 + contig_3, \, etc.$). This we can get with the base function `cumsum()`.
+```{r}
+# cumulative sums of lengths:
+cumsum(width(contigs))
+```
+
+Lastly, we want to plot again in kbp instead of bp, so we once more divide by 1000.
+```{r}
+# cumulative sums in kb
+contig_borders <- cumsum(width(contigs)) / 1000
+contig_borders
+```
+
+And again, we can add these to our plots
+```{r, out.width='49%', fig.show='hold'}
+# base R
+plot(Depth ~ LocusKB,
+     data = my_cov_bin,
+     type = 'l',
+     xlab = "Locus (kb)",
+     col = "grey",
+     main = "R base")
+lines(SlidingAverage ~ LocusKB,
+      data = my_cov_bin,
+      col = 'blue')
+abline(v = contig_borders, # adds a vertical line at x-coordinates v
+       col = "red",
+       lty = 2)
+
+# ggplot
+ggplot(my_cov_bin, aes(x = LocusKB, y = Depth)) +
+  geom_line(col = "grey") +
+  geom_line(aes(y = SlidingAverage), col = "blue", size = 2) +
+  geom_vline(xintercept = contig_borders, col = "red", lty = 2) +
+  labs(title = "ggplot",
+       x = "Locus (kb)",
+       caption = "Grey: mean coverage every 100 bp; \n Blue: moving average of 100bp-means with total sliding window size 1001; \n Red: contig borders.") +
+  theme_bw(base_size = 16)
+```
+
+### Exercise 2.5: Adding contig borders
+
+**Remember to write your code in your new R script _readcoverage.R_. Save it every now and then and run your code from there.**
+
+1. Copy your file <i>03_\<ESL0xxx\>_contigs_filtered.fasta</i> from curnagl to your local computer, current working directory, using the `scp` command in the terminal.
+2. Read this file into R in an object called `contigs`, like above.
+3. Run `cumsum(width(contigs))`, `sum(width(contigs))` and `nrow(my_cov)`.
+    + Do you understand what each of these three pieces of code do?
+    + Compare their output: are they similar? Does that make sense? Why? Why not?
+4. Calculate the contig borders using `cumsum()`, as in the example above and also save it into an object called `contig_borders`.
+5. Add the contig borders as vertical lines to the plot you made in the previous exercise, as in the example above.
+
+
+> Take some time looking at the coverage plot, and discuss it with your assistant. Are there any contigs with unusually high coverage? Or do you have sudden shifts in coverage within contigs? What could be the reason? If anything pops up, you could try to do some blasting.
+
+Now you have your code saved in your script, so if you want to run it again in the exact same way next year, with the same parameters, you can. You should also save the plot you made to a file, e.g. png or pdf. The easiest way to do this, is probably to click in the Plots Pane on _Export > Save as Image/PDF_.

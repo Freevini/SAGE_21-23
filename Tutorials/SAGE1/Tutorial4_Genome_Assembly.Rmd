@@ -1,0 +1,1127 @@
+---
+title: "Genome assembly with SPAdes"
+date: 04-10-2022
+# output:
+#   pdf_document:
+# urlcolor: Mahogany
+# linkcolor: Mahogany
+# latex_engine: texlive
+# header-includes:
+#   - \usepackage{color}
+#   - \usepackage[fontsize=9pt]{scrextend}
+# geometry: margin=0.75in
+# toc: true
+output:
+  html_document:
+    theme: united
+    highlight: tango
+    # code_folding: hide
+    df_print: paged
+    toc: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+---
+
+```{r setup, include=FALSE}
+# knitr::opts_knit$set(root.dir = 'path')
+# bash is invoked with the R function system2() which ignores ~/.bash_profile etc.
+# If you want these profile files to be executed just like when you use the terminal, you may pass the argument -l to bash via engine.opts
+knitr::opts_chunk$set(engine.opts = list(bash = "-l"))
+# load libraries
+library(ggplot2)
+```
+
+# Intro
+
+In the last session, you should have:
+
+1. Checked the quality of the raw data from the sequencing platform
+
+2. Trimmed the data for low-quality reads and adapters
+
+3. Checked the quality of the trimmed data (to confirm that the trimming has worked as expected)
+
+As you would have seen in earlier sessions, to copy files from or to the cluster you can use the `scp` command. To run scripts or commands via the terminal on the cluster, use `ssh`.
+
+<span style="color: red;">**Remember! :** </span>Everything that is between "<  >" (including <>) needs to be changed and adapted to your username / file.
+
+```{bash engine.opts='-l', eval=FALSE}
+ssh <username>@curnagl.dcsr.unil.ch
+password: <invisible!>
+cd /scratch/jgianott/sage/SAGE2021_22/<username>/<directory_trimmed_reads>
+```
+
+Once you have logged into the cluster you should find the trimmed files that you generated in the previous tutorial and check them.
+
+<span style="color: red;">**Important! : **For the rest of the tutorial, I'm going to assume the directory where the trimmed reads are is `01_trim` and the trimmed reads named 01_ESL0xxx_R1_paired.fastq.gz and 01_ESL0xxx_R2_paired.fastq.gz. If not, be careful to modify these when needed.</span>
+
+
+## Check trimmed files
+
+Trimmomatic will have generated 4 output files. These include 2 for the unpaired reads and 2 for the paired reads.
+
+The unpaired files contain reads for which only one member of the pair (forward/reverse) survived trimming. The paired  files contain reads for which both members of the pair have survived the trimming. These are the ones we will use as input for the assembly.
+
+**Find** these two files, and **check** them. The first read in file with R1 should have almost the same name as the first read in file with R2, since they are part of the same read-pair. Use `less` to take a look at them.
+
+```{bash engine.opts='-l', eval=FALSE}
+less 01_<ESL0xxx>_R1_paired.fastq.gz
+less 01_<ESL0xxx>_R2_paired.fastq.gz
+```
+
+Moreover, the two trimmed files should contain the same number of reads. With a few simple UNIX commands, this can easily be checked, like this:
+
+```{bash engine.opts='-l', eval=FALSE}
+less 01_<ESL0xxx>_R1_paired.fastq.gz | grep -c '@M02102'
+less 01_<ESL0xxx>_R2_paired.fastq.gz | grep -c '@M02102'
+```
+
+# Part 3 : Submitting the assembly job
+
+## Exercise 3.1: Checking files using Bash {.tabset .tabset-fade .tabset-pills}
+
+### Question
+
+Do you understand these lines? What is your output for:
+
+```{bash engine.opts='-l', eval=FALSE}
+less 01_<ESL0xxx>_R1_paired.fastq.gz | grep -c '@M02102'
+```
+and
+
+```{bash engine.opts='-l', eval=FALSE}
+less 01_<ESL0xxx>_R1_paired.fastq.gz | grep -c '@'
+```
+Why are they different?
+
+### Answer
+
+```{bash engine.opts='-l', eval=FALSE}
+less 01_<ESL0xxx>_R1_paired.fastq.gz | grep -c '@M'
+```
+
+only counts the number of reads with headers starting with *\@M02102*, e.g.:
+
+```
+@M02102:624:000000000-JY376:1:1101:6576:11990 1:N:0:ATTGATACTG+TACACGCTCC
+```
+but,
+
+```{bash engine.opts='-l', eval=FALSE}
+less 01_<ESL0xxx>_R1_paired.fastq.gz | grep -c '@'
+```
+
+counts all headers because they all contain *\@* and also the *\@* occurring as part of the characters indicating the quality of bases if there were any!
+
+```
+@M02102:624:000000000-JY376:1:1101:6576:11990 1:N:0:ATTGATACTG+TACACGCTCC
+>>A>AA1@F3FFGGGEEGGGGFHFEHFHHFGHHDFGHHFFA?E/FHGA?G?EFGGCAF/F11@EGHFGHEFDFFF?FFFHFEDFEGFGHF@EGGHGCHGHFD/FDBED1GGGHEHE?EGGGHE?CCF@CGCFGHCACCFHFHGGGHHH01>FCCCA@GHHGGCCCCCGG?.AEACCC.::CAB9FFFGGBGGFGABFEGBF09FGBFFGFGGGGGFF@9-AFFFF/9FFBFFE9AF-FFFA9@@--@@?F-
+```
+
+### Take-home message
+
+> Take home message: bash-commands, such as “grep”, are fast and useful, but **be careful**, Bash is very pedantic! You need to be precise in your instructions !
+
+
+## Localize your software
+
+Before we can get started on the assemblies, we need to find the required software on the cluster. In this class, we will be using [SPAdes](https://cab.spbu.ru/files/release3.15.3/manual.html) assembler.
+
+First, check if the module that you want (SPAdes) is available:
+
+```{bash engine.opts='-l', eval=FALSE}
+module spider spades
+```
+If you want get a list of modules already loaded use,
+
+```{bash engine.opts='-l', eval=FALSE}
+module avail
+```
+**spades** is not listed.
+
+If you want to get details about modules that are available to load type,
+
+```{bash engine.opts='-l', eval=FALSE}
+module spider
+```
+
+
+## Exercise 3.2: Loading modules on cluster {.tabset .tabset-fade .tabset-pills}
+
+### Question
+
+Now, try to load SPAdes using,
+
+```{bash engine.opts='-l', eval=FALSE}
+module load spades
+```
+You are unable to load the module. Why? What does the error message say?
+
+### Answer
+The module cannot be loaded because an other module is missing.
+
+To get more details about the module of interest (for us it is spades) type,
+
+```{bash engine.opts='-l', eval=FALSE}
+module spider spades
+```
+You should now be able to find out which module(s) is/are to be loaded before loading spades. In your case, `gcc/10.4.0`.
+
+## Loading SPAdes on the cluster
+
+Now first load gcc and then spades. Then check if spades has been loaded using the lines below.
+
+This is <span style="color: red;">not included</span> in the requirements but we also need **python** to be able to use SPAdes.
+
+```{bash engine.opts='-l', eval=FALSE}
+module load gcc/10.4.0
+module load spades/3.15.3
+module load python/3.8.13
+module avail
+```
+
+You should now see `spades/3.15.3   (L)` in the list of modules with an (L) to indicate that it has been loaded (you might need to scroll down the list to see it). Now type:
+
+```{bash engine.opts='-l', eval=FALSE}
+spades.py
+```
+
+You should see some text in the terminal, explaining basic usage and available options. The basic usage is very simple, it goes like this (but don't type this, you need to put the command in a script first):
+
+```{bash engine.opts='-l', eval=FALSE}
+# Do not type this yet
+spades.py -1 paired_R1.fastq -2 paired_R2.fastq --careful -o /my/output/directory
+```
+We need to provide the software with :
+
+  * The R1 file of the trimmed paired reads
+  * The R2 file of the trimmed paired reads
+  * The output directory
+
+
+## Exercise 3.3 : Submitting the assembly
+
+This job will require more computational resources than the programs you have used previously (FastQC and Trimmomatic). So, we submit the assembly as a job to the cluster and request for as much resource as the job will need.
+
+### 3.3.1 Write your submission script
+
+You will find a template of the batch script to use in this tutorial. You can paste and edit it in your text editor and then copy it to your working directory in the cluster using `scp`. Or, you can copy the script content below, create a script file with `nano run_spades.sh` and paste the copied code. To save the changes in run_spades.sh just pres Ctrl+X and then Y and Enter when asked if you want to save the modified file.
+
+Since the number of reads is still modest, you might still be able to run the job with default resources, but it will probably take at least an hour. If it does crash (or you are impatient), consider asking for a bit more resources.
+
+For example, by putting these options like these in your script:
+
+```{bash engine.opts='-l', eval=FALSE}
+#!/bin/bash
+
+######### SLURM OPTIONS
+#SBATCH --partition cpu
+#SBATCH --account jgianott_sage
+#SBATCH --job-name spades
+#SBATCH --nodes 1
+#SBATCH --ntasks 1
+#SBATCH --cpus-per-task 8 # Ask for 8 threads (default: 1 thread)
+#SBATCH --mem 6G # 6 Gb of memory (default: 2Gb)
+#SBATCH --time 1:00:00 # Ask for one hour (default : 12 hours)
+#SBATCH --error /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/spades.err
+#SBATCH --output /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/spades.out
+```
+
+Here, we asked for more memory and more CPUs (threads), which should speed up the computation considerably. Moreover, by asking for just one hour (instead of 12 hours, which is the default), we are decreasing the chance that the job will be in the queue for too long. *Asking for the right amount of resources is an art!*
+
+Other than the options listed here above, you will also need to detail the job you want to run in your script (and you should also load the software needed to run the job). So we add those lines as well.
+
+Your version of the script should look like this but with the correct file paths <span style="color: red;">**!** </span>
+
+<span style="color: red;">Do not forget to change the `<username>` in the error, output paths and your genome name **!!!** </span>
+
+```{bash engine.opts='-l', eval=FALSE}
+#!/bin/bash
+
+######### SLURM OPTIONS
+#SBATCH --partition cpu
+#SBATCH --account jgianott_sage
+#SBATCH --job-name spades
+#SBATCH --nodes 1
+#SBATCH --ntasks 1
+#SBATCH --cpus-per-task 8
+#SBATCH --mem 6G
+#SBATCH --time 1:00:00
+#SBATCH --error /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/spades.err
+#SBATCH --output /scratch/jgianott/SAGE/SAGE2022_2023/<username>/logs/spades.out
+
+### Loading the modules ###
+
+module load gcc/10.4.0
+module load spades/3.15.3
+module load python/3.8.13
+
+#define variables
+username=<username>
+path_to_files=/users/${username}/sage22/${username}/01_trim
+genome_id=<ESL0xxx>
+
+
+### Commands ###
+spades.py -1 ${path_to_files}/01_${genome_id}_R1_paired.fastq.gz -2 ${path_to_files}/01_${genome_id}_R2_paired.fastq.gz --careful -o /users/${username}/sage22/${username}/02_assembly
+
+
+### END ###
+```
+
+### 3.3.2 Submit for assembly
+
+* Spades will create the directory `mkdir 02_assembly` for the assembly output (in scratch).
+* Copy the template above and edit with correct file paths
+* Copy the scripts into your directory on the cluster
+* Check that there are no serious errors:
+
+```{bash engine.opts='-l', eval=FALSE}
+sbatch --test-only ./run_spades.sh
+```
+* `cd` to your directory where your script is and submit the job inside this directory
+```{bash engine.opts='-l', eval=FALSE}
+sbatch ./run_spades.sh
+```
+* check the job status:
+```{bash engine.opts='-l', eval=FALSE}
+sacct
+```
+use this option to get some more information
+```{bash engine.opts='-l', eval=FALSE}
+sacct --format=jobid,jobname,partition,account,AllocCPUs,state,elapsed
+```
+
+# Part 4 : Contigs analysis
+
+Now that the assembly is done, you need to check for it's quality. Do you remember the three **C**?
+
+You can have a look at
+
+  * <span style="color: red;">**C** </span>ontiguity
+    + How many contigs there and length of the contigs
+  * <span style="color: red;">**C** </span>ompleteness
+    + Size of the assembly (It is too early to check for the core genes, the genomes are not annotated yet)
+  * <span style="color: red;">**C** </span>orrectness (read mapping)
+    + We will do this in the next tutorial (11.10.22).
+
+
+## 4.1 Understanding SPAdes output
+
+First, we check and understand the output files that Spades created.
+
+### Exercise 4.1.1: SPAdes output {.tabset .tabset-fade .tabset-pills}
+
+
+#### Questions
+
+Go to the assembly directory.
+
+* Do you understand what you see?  Where can you find some details about it?
+* Can you guess what the K21, K33,... directories are?
+* According to you, which file(s) will we use for the next steps?
+
+
+#### Answers
+The software [manual](https://cab.spbu.ru/files/release3.14.1/manual.html#sec3.5) usually has a dedicated section describing the output.
+
+* **corrected/**
+  * directory contains reads corrected by BayesHammer in *.fastq.gz files.
+* **scaffolds.fasta**
+  * contains resulting scaffolds
+* **contigs.fasta**
+  * contains resulting contigs
+* **assembly_graph_with_scaffolds.gfa**
+  * contains SPAdes assembly graph and scaffolds paths in GFA 1.0 format
+* **assembly_graph.fastg**
+  * contains SPAdes assembly graph in FASTG format
+* **contigs.paths**
+  * contains paths in the assembly graph corresponding to contigs.fasta
+* **scaffolds.paths**
+  * contains paths in the assembly graph corresponding to scaffolds.fasta
+* **K21, K33, ... K<##> directories**
+  * contain intermediate files from the run with K = <##>
+  * Spades does the assembly several times with different K-mer length
+    * For read length 250bp, SPAdes automatically chooses K values equal to 21, 33, 55, 77, 99, 127.
+
+### Exercise 4.1.2: Contigs metrics {.tabset .tabset-fade .tabset-pills}
+
+#### Question
+Now is the time to remember the linux practicals. Use `less`, `more`, `cat`, `head`, `tail` to have a look at the assembly files *scaffolds.fasta* and *contigs.fasta*. How are they structured? Can you see a difference between these two files?
+
+#### Hints
+
+```{bash engine.opts='-l', eval=FALSE}
+
+Remember the UNIX tutorial ? Fasta format have this structure:
+>Contig1_info
+Sequence
+Sequence
+Sequence
+>Contig2_info
+Sequence
+Sequence
+...
+
+```
+**Hint:** grep for the pattern 'NN' where and in which file do you find it?
+
+#### Answer
+
+* Contigs are continuous stretches of sequence containing only A, C, G, or T bases without gaps.
+* Scaffolds are created by chaining contigs together. Contigs in a scaffold are separated by gaps, which are designated by a variable number of ‘N’ letters.
+
+
+### Exercise: 4.1.3 Rename contigs
+
+So far we have been appending a number to the beginning of the file names to keep track of which step they were used for. For example, raw files have 00_ at the beginning, 01_ for the trimmed files.
+
+Now, the contigs.fasta file will have 02_ appended to its name. It is always good to rename files in a clear consistent manner throughout your workflow.
+
+To do this,
+
+```{bash engine.opts='-l', eval=FALSE}
+# you should be in your sage working directory -> /<username>/scratch_link/<username>/...
+# Remember you can use the move command to rename files
+
+mv 02_assembly/contigs.fasta 02_assembly/02_<ESL0xxx>_contigs.fasta
+```
+
+
+## 4.2 Understanding contigs
+
+The header of each contig contains useful information about the contig. For example,
+
+```{bash engine.opts='-l', eval=FALSE}
+>NODE_1_length_928605_cov_64.3356
+```
+
+* `NODE_1` - Contig number
+* `length_928605` - Length of the Scaffold
+* `cov_64.3356` - K-mer coverage of the scaffold for the last (largest) K value used
+
+If you don't remember what a "K-mer" is, go back to the lecture slides on genome assembly. The relationship between **read coverage** (the number of reads overlapping on a given position in your assembly sequence) and **K-mer coverage** is given by this formula:
+
+$$C_K = C*\frac{(L-K+1)}{L}$$
+
+where $C_K$ = K-mer coverage, C = read coverage, L = read length, and K = K-mer size used for the assembly.
+
+However, since SPAdes by default uses 4 different K-mer sizes in combination when doing the genome assembly, it is not quite that simple. According to some sources, the number is generated based on the largest K-mer size used for the assembly.
+
+Regardless, if you look at your headers you should see a clear difference in K-mer coverage for the well supported contigs, compared to the unsupported ones.
+
+>As a rule of thumb, for an assembly done with a decent amount of reads, you should have a minimum K-mer coverage of 10. Any contigs with extremely low coverage (<10) should be removed. Likewise, short contiges (<500bp) should be removed (even if they have a high coverage), since they are unlikely to provide any useful information.
+
+In the following section, you will count the number of contigs and filter short contigs and contigs with low coverage.
+
+### Exercise 4.2.1: Understanding contigs {.tabset .tabset-fade .tabset-pills}
+
+#### Question 1
+
+* How will you find the number of contigs in your assembly? (There are several ways to do this)
+* Do you remember the genome assembly lecture ? Is it better to have a few or a lot of contigs?
+* Is there a difference between the *scaffold.fasta* file and the *02_ESL0xxx_contigs.fasta* file?
+
+#### Answer
+
+```{bash engine.opts='-l', eval=FALSE}
+#Number of contigs:
+grep -c '>NODE' 02_<ESL0xxx>_contigs.fasta
+
+#Number of scaffolds:
+grep -c '>NODE' scaffolds.fasta
+
+# The number of scaffolds might be different, as some contigs are grouped as scaffolds in the scaffold.fasta file.
+```
+
+#### Question 2
+
+Now use `grep` to have a look at all the headers.
+
+* Do you see a consequent variation in coverage between the contigs?
+* Do you have a lot of small contigs?
+
+#### Answer
+
+```{bash engine.opts='-l', eval=FALSE}
+grep '>NODE' scaffolds.fasta
+grep '>NODE' | tail scaffolds.fasta # to see the last 10 contig headers
+tail scaffolds.fasta #if there is some small contigs tail shows the last 10 lines
+```
+
+
+## {-}
+
+As a rule of thumb, for an assembly done with a decent amount of reads, you should have a minimum K-mer coverage of 10. Any contig with extremely low coverage (<10) should be removed. Likewise, short contiges (<500bp) should be removed (even if they have a high coverage), since they are unlikely to provide any useful information.
+
+To filter the contigs we are going to use R. So if you are already here, wait for the lecture of R and R Studio!
+
+# Part 5 : Contig filtering
+
+To filter the contigs you may use a bash one-liner (feel free to try if you're a bash addict). In this tutorial, we will use R to do so.
+
+## 5.1 Quick introduction to R
+
+You will do this locally on your own computer (not on the cluster), so you first need to download your 02\_\<ESL0xxx\>\_contigs.fasta file to you local computer using the `scp` command. If you don't remember how to use `scp`, go back to the relevant tutorial of the course.
+
+> **Do now:** Copy your 02\_\<ESL0xxx\>\_contigs.fasta file to your local computer with `scp`.
+
+<!-- ```{bash engine.opts='-l', eval=FALSE, echo = FALSE}
+# answer not shown in html, as they should know this by now:
+scp <yourusername>@wally-front1.unil.ch:<path/to/file/contigs.fasta /path/to/copy/to
+``` -->
+
+### R installation
+
+**Skip if done already.**
+
+At this point, we assume you have installed R and RStudio, as per instruction. If not, download and install the latest versions of [R](https://stat.ethz.ch/CRAN/) and [RStudio](https://rstudio.com/products/rstudio/download/) in this order by clicking the links. For help, you can follow this [YouTube installation guide](https://youtu.be/2Sovzf6lVRo). In case of persistent problems / errors, ask your assistant.
+
+
+> **Do now:** open RStudio. <br /> <br /> *If you have installed RStudio successfully and are able to open it, **stop here** for now. We will continue after the next lecture.*
+
+***
+
+
+### Some essential R
+We will not give a complete course on the basics of R here, but rather show you some essentials you will need to understand the code that you need for analyzing and filtering your contigs. There will be some examples, followed by an exercise to familiarize a little with coding in R. Moreover, you can come back to these examples later on, if you want to look up how something was done again or to find some function name.
+
+In this document, code is displayed in boxes with a grey background, and its output in boxes with a white background and two hashes (`##`):
+
+```{r}
+print("Hello world")
+```
+You can store values or characters into objects using `<-`. You can also add comments to your code using `#`. You can see what is stored in an object by running it. An example:
+
+```{r}
+N <- 13 # this is a comment
+N # run the object N to see what is stored in it
+```
+
+You can use R as simple calculator:
+
+```{r}
+13 * 2
+N * 2
+N + (N - 3)
+```
+
+You can also store multiple values in an object, using `c()`.
+
+```{r}
+myVector <- c(2, 5, 6, -20)                # we call a combination of numbers a vector
+# comments can also be on new lines
+myString <- c("this", "is", "a", "string") # we call a vector of characters a string
+```
+
+To see what is stored in an object, just run it:
+
+```{r}
+myVector
+myString
+```
+
+As you can see, we have to put _characters_ in quotation marks. This is to tell R we want it to be read as a character, not as an object. Consider:
+
+```{r}
+myVector    # this will return the contents of the object myVector
+"myVector"  # this will return the character "myVector"
+```
+
+If you ask R a logical question, it will return either `TRUE` or `FALSE`:
+
+```{r}
+N < 4        # is N smaller than 4?
+myVector >= 5 # is each of the myVector larger than or equal to 5?
+```
+
+Another operator we will use is the AND port: `&`. You can use it to ask if two things are `TRUE` about an object:
+
+```{r}
+myVector < 4 & myVector > 1 # which elements in myVector are larger than 1 AND smaller than 4?
+```
+
+#### Basic functions, data frames and subsetting {#anchorBasics}
+
+R makes use of _functions_, like `c()` we used above, which take some input (or _arguments_), process it and return output. For instance, `c()` **c**ombines its input and returns that, as you can see above. If you see a function and wonder what it does, you can go to the help file, by running `?function`. So, if you want to know what `c()` does, you can run `?c` and the help file will pop up. Another useful function is `length()`, which returns the length of its input:
+```{r}
+length(myVector)
+```
+More functions will be introduced as you go through the tutorial.
+
+We can select a subset of vectors or strings using the square brackets `[]`:
+```{r}
+myVector[2]
+myString[c(1, 4)]
+myString[c(3, 4, 1, 2)] # Yoda version
+```
+
+Another class of object you will use a lot in R is the `data frame`. This is basically a table as you might use it in for example MS Excel. We can make one:
+```{r}
+myDataFrame <- data.frame("Var_X" = myVector, # first column called Var_X has values of object myVector
+                          "Var_Y" = myString) # second column called Var_Y has values of object Characters
+myDataFrame
+```
+This is mostly how data you will work with in R will be stored.
+
+Like in bash, we can ask for the first or last few lines of any object with the functions `head()` and `tail()`
+```{r}
+head(myVector,
+     n = 2)   # you can specify with n how many lines you want to see
+tail(myString, n = 3)
+head(myDataFrame, n = 2)
+```
+In the tutorial you will see we use `head()` a lot, simply to quickly show you what is stored in some object.
+
+Like with vectors and strings, you can subset data frames. However, a data frame has two dimensions to select on: rows and columns. So, it needs two indices in the square brackets, which are separated by a comma: `myDataFrame[rows, columns]`.
+```{r}
+myDataFrame[, ]         # no selection
+myDataFrame[4, ]        # 4th row
+myDataFrame[, 2]        # 2nd column
+myDataFrame[4, 2]       # 4th row and 2nd column
+myDataFrame[c(1, 4), 2] # 1st &  4th row and 2nd column
+```
+
+Data frames are easy to handle, because you can also select on its columns by their names:
+```{r}
+myDataFrame$Var_Y
+```
+
+And of course, you can then subset that:
+```{r}
+myDataFrame$Var_Y[4]
+```
+
+Lastly, you will see subsetting using `TRUE` / `FALSE` strings:
+```{r}
+myDataFrame[c(TRUE, TRUE, FALSE, FALSE), # select first two rows
+            c(FALSE, TRUE)]              # and second column
+```
+
+### Exercise 5.1.1: Getting used to some R essentials {.tabset .tabset-fade .tabset-pills}
+
+#### Questions {.unnumbered}
+
+> **Do now:** open a new R script and save it as "R_intro.R".
+
+Write all code you make for these questions down in the script and run it from there. Add any answers in text as comments (using `#`).
+
+1. Make a vector called `myNewVector` with values 11, 989, -79, -4 and 3 stored in it.
+2. Make and run a line of code that tells you how many numbers `myNewVector` has.
+3. Run `summary(myNewVector)`. Describe what this function does.
+4. Make and run a line of code that displays only the last three numbers in `myNewVector`.
+5. Make and run a line of code that displays only the second and fifth number in `myNewVector`. (Hint: use the square brackets to select the subset.)
+6. Make and run a line of code that tells you which values in `myNewVector` are smaller than 11.
+7. Run `myNewVector[myNewVector > 11]`. Do you understand the output? (Hint: if you do not get it, first run the innermost part of the code and work outwards: first run `myNewVector`, then `myNewVector > 11`, then `myNewVector[myNewVector > 11]`. Also make sure you understand what the square brackets do.)
+
+#### Answers {.unnumbered}
+
+```{r, eval=FALSE, echo=TRUE}
+myNewVector <- c(11, 989, -79, -4, 3)
+length(myNewVector)
+summary(myNewVector) # gives summary statistics (min, median, max etc)
+tail(myNewVector, n = 3) # or myNewVector[c(4, 5)] but hope
+                         # they pick up head() and tail()
+myNewVector[c(2, 5)] # or myNewVector[c(FALSE, TRUE, FALSE, FALSE, TRUE)]
+myNewVector < 11
+myNewVector[myNewVector > 11] # subset of elements of myNewVector
+                              # for which myNewVector > 11 is TRUE
+```
+
+## 5.2 Exploring and plotting contigs in R
+
+### Handling fasta files in R
+
+> **Do now:** open a new R script and save it under the name "*contig_filtering.R*".
+
+**Important:**
+
+1. Make sure this script is saved in the same folder as your *02\_\<ESL0xxx\>\_contigs.fasta* file.
+2. Run everything you do henceforth from this script (*contig_filtering.R*) and save it every now and then. This means you will type all your code into this script and run it in there. This will ensure you can save your code, so you can get back at it at a later time point.
+3. Run the following code, setting your working directory. This will tell R where to look for files you try to read or write. Make sure this is the same folder as where you have saved your *contig_filtering.R* and *02\_\<ESL0xxx\>\_contigs.fasta* file.
+
+```{r, eval = FALSE}
+setwd("<path/to/your/working/directory/where/you/also/saved/the/02_<ESL0xxx>_contigs.fasta/file>")
+```
+
+**Alternatively**, you can click in RStudio at the top on _Session_ > _Set Working Directory_ > _To Source File Location_ if you have your script open, or _Choose Directory_ and select the folder with the *02\_\<ESL0xxx\>\_contigs.fasta* file.
+
+> **Do now:** set your working directory.
+
+The code below shows how everything is done with an example file. In the exercises after, you will perform all required steps yourself with your own data.
+
+#### Reading a fasta file into R
+
+Now we will need to read the fasta file into R. Here we will profit from the fact that R is open source software, which means that anyone can contribute in the making of R packages: collections of functions with a certain purpose. Conveniently, a package exists to work with sequence data: `Biostrings`. You can install it by running:
+
+```{r, eval = FALSE}
+install.packages("BiocManager")
+BiocManager::install("Biostrings")
+```
+
+Once you have run this successfully, you will not have to do it again (as the package is then already installed). Why you need the additional `BiocManager` package here (and not at other times), is beyond the scope of this tutorial. Now load the package into R (making it 'active'), using the `library()` function, like this:
+
+```{r, message = FALSE}
+library(Biostrings)
+```
+
+> **Do now:** install and load the `Biostrings` package.
+
+Finally, you can read your fasta file into R, using the `readDNAStringSet()` function of the `Biostrings` package:
+
+```{r, eval=FALSE}
+contigs <- readDNAStringSet("02_<ESL0xxx>_contigs.fasta")
+```
+
+Note that if you did not save *contig_filtering.R* and *02\_\<genome\_ID\>\_contigs.fasta* file in the same folder, or simply if your working directory is not set to the folder with the *02\_\<genome\_ID\>\_contigs.fasta* file, this will throw an error. This is because R will not know where to look for the file. If this happens, change your working directory (see above), or specify the _absolute path_ to the file. For instance, for me that would be:
+
+```{r, eval = FALSE}
+contigs <- readDNAStringSet("path/to/02_<ESL0xxx>_contigs.fasta")
+```
+
+You can see why one might prefer to set the working directory in advance: it allows you to use short, _relative paths_.
+
+> **Do now:** read your fasta file into R.
+
+```{r, echo=FALSE}
+# load example file
+contigs <- readDNAStringSet("contigs.fasta")
+```
+
+
+#### Manipulating fasta files in R
+Check what you read into R, simply by running the object itself:
+
+```{r}
+contigs
+```
+This is the output of this specific example file, it will be different for you. We can already extract some information from this object, for instance...
+
+* ...the number of bp in each contig:
+```{r}
+width(contigs)
+```
+* ...some summary statistics on the contig "widths", like the minimum, maximum and median values:
+```{r}
+summary(width(contigs))
+```
+* ...the number of contigs:
+```{r}
+length(contigs)
+```
+
+* ...the "name" of each contig:
+```{r}
+names(contigs)
+```
+
+#### Exercise 5.2.1: Reading and exploring fasta files in R {.tabset .tabset-fade .tabset-pills}
+
+> Remember to write and save your code in your R script "contig_filtering.R"!
+
+##### Question 1 {.unnumbered}
+
+* Have a look at your contigs by simply running `contigs`.
+* Print the number of contigs like in the example above.
+* How many contigs do you have in your file?
+* How are the contigs sorted in R?
+
+##### Answer {.unnumbered}
+
+```{r, echo = TRUE, eval = FALSE}
+#contigs <- readDNAStringSet("/path/to/contigs.fasta") # to read your file
+contigs
+# can see nr of contigs also with:
+length(contigs)
+# sorted by contig length ('width') as you can see by running `contigs`
+```
+
+##### Question 2 {.unnumbered}
+
+* Print the first and last 10 contigs. (Hint: have a look at [the basics of R above](#anchorBasics) if you don't remember how to.)
+* Do you see anything odd about any of the contigs?
+
+##### Answer {.unnumbered}
+
+```{r, echo = TRUE, eval = FALSE}
+# e.g.
+head(contigs, n = 10)
+tail(contigs, n = 10)
+## or: contigs[1:10]; contigs[c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)] # etc
+# e.g. in example, last two contigs consist of only G's and T's
+```
+
+##### Question 3 {.unnumbered}
+
+* Print the contig lengths as in the example above.
+* What can you already say about their distribution?
+* Do you expect to filter out many contigs in the end?
+
+##### Answer {.unnumbered}
+
+```{r, echo = TRUE, eval = FALSE}
+# they can already gauge the distribution by eye using
+width(contigs) # which prints the contig lengths, NOT length(contigs)
+# so in example, just a few long contigs, rest / most all small!
+# long contigs are a good sign,
+# in example few long contigs, rest will be filtered
+```
+
+##### Question 4 {.unnumbered}
+
+* Print the "names" of the contigs as in the example above.
+* Where in the original fasta files can you find the information now stored in the "contig names"?
+* So what kind of information can be found in the "contig names"?
+
+##### Answer {.unnumbered}
+
+```{r, echo = TRUE, eval = FALSE}
+names(contigs)
+# Same as the fasta headers
+## contains per contig:
+# 1. the contig number
+# 2. the length of the contig (same as 'width' in R)
+# 3. the k-mer coverage
+```
+
+### Extracting data from the contig names
+
+As you should have realized in the last question, the information we are interested in, is 'hidden' in the contig names. There are many ways to manipulate pieces of text ("character strings") in R.
+
+We will show one way to extract the information specifically suitable for this situation, but this is not the only way; feel free to explore! You are also encouraged to at any time run any object to see what is stored in it (e.g., simply run `contigs` to see how the fasta file is stored in R).
+
+First, we can extract the contig names and store them as a separate character string as follows:
+```{r}
+contig_names <- names(contigs)
+head(contig_names)
+```
+Here, we make use of the fact that all our pieces of information are split by an underscore ("_"). That is fortunate, as you can now directly use the R function `strsplit()`:
+```{r}
+contig_names_ls <- strsplit(contig_names, split = "_")
+head(contig_names_ls)
+```
+As you can see, this has extracted all the characters in between the underscores, per contig name. Now we can store all this information neatly in a matrix:
+
+```{r}
+# this binds all elements of contig_names_ls by rows
+contig_names_df_raw <- do.call(rbind, contig_names_ls)
+head(contig_names_df_raw)
+```
+
+where every row is a contig, and the columns contain the information per contig. This is almost a data frame we can work with in R. However, we are only interested in columns 2, 4 and 6. So, we have to select only these, and it is good practice to name them too:
+
+```{r}
+contig_names_df <- data.frame("Node" = contig_names_df_raw[, 2],
+                              "Length" = contig_names_df_raw[, 4],
+                              "kmer_coverage" = contig_names_df_raw[, 6])
+head(contig_names_df)
+```
+
+That looks good, let's see some summary statistics on the numbers...
+```{r}
+summary(contig_names_df)
+```
+
+Sometimes, R may have read the contig lengths and coverages as "characters" or "factors": both a class of text. You can see what this looks like in the example output of the `summary()` above. Instead, we need R to read these variables as "numeric": numbers. To ensure this happens the same for everyone, we turn the variables first all into characters and then into numerics:
+```{r}
+contig_names_df$Length <- as.numeric(as.character(contig_names_df$Length))
+contig_names_df$kmer_coverage <- as.numeric(as.character(contig_names_df$kmer_coverage))
+summary(contig_names_df)
+head(contig_names_df)
+```
+
+#### Exercise 5.2.2: Extracting the contig quality data {.tabset .tabset-fade .tabset-pills}
+
+> Remember to write and save your code in your R script "contig_filtering.R"!
+
+##### Question {.unnumbered}
+
+
+1. Make a data frame as the one above for your own data.
+2. Describe along every line of code in your script what it does with comments (using `#`).
+
+##### Answer {.unnumbered}
+
+```{r, echo=TRUE, eval=FALSE}
+# extract fasta headers.
+contig_names <- names(contigs)
+# split each header by underscore; produces a list.
+contig_names_ls <- strsplit(contig_names, split = "_")
+# bind all the rows in the list.
+contig_names_df_raw <- do.call(rbind, contig_names_ls)
+# make a named data frame of the 2nd, ...
+contig_names_df <- data.frame("Node" = contig_names_df_raw[, 2],
+                              #     ...4th ...
+                              "Length" = contig_names_df_raw[, 4],
+                              #     ...and 6th column.
+                              "kmer_coverage" = contig_names_df_raw[, 6])
+# read contig lengths as numeric.
+contig_names_df$Length <- as.numeric(as.character(contig_names_df$Length))
+# read k-mer coverage as numeric.
+contig_names_df$kmer_coverage <- as.numeric(as.character(contig_names_df$kmer_coverage))
+```
+
+### Plotting the contigs
+At last, you should now have obtained a neat data frame with one row per contig, where the columns indicate the contig length and k-mer coverage. Time to explore this data. Here are two ways to make the same scatter plot, where every point is a contig:
+
+```{r, out.width='49%', fig.show='hold'}
+plot(Length ~ kmer_coverage,
+     data = contig_names_df)
+plot(x = contig_names_df$kmer_coverage,
+     y = contig_names_df$Length)
+```
+
+You can use either way of coding, just a matter of personal preference. We will continue using the former here, but feel free to use the latter if you prefer.
+
+For the contigs with smaller values it is difficult to see their exact coordinates on either axis in this example, because the axes are "stretched" by a few extremely high values. This can easily be fixed by a log-transformation for both the x- and y-axis:
+
+```{r}
+plot(Length ~ kmer_coverage,
+     data = contig_names_df,
+     log = 'xy')
+```
+
+This is arguably not the best layout of a plot you might have come across in your life and R contains almost infinite ways to customize plots. Remember though, that in a scientific setting it is only desirable to add features to a plot if they help in its interpretation. However, feel free to play around here, of course. These are just some options; simply play around or Google for more:
+
+```{r}
+plot(Length ~ kmer_coverage,
+     data = contig_names_df,
+     log = 'xy',
+     col = "darkred",
+     pch = 3,
+     main = "Contigs before filtering",
+     ylab = "Contig length (bp)",
+     xlab = "Contig k-mer coverage")
+```
+
+Now the real question is of course: which contigs are informative, or "good", and which are not?
+
+#### Adding filtering parameters
+
+Again:
+
+> As a rule of thumb, for an assembly done with a decent amount of reads, you should have a minimum k-mer coverage of 10. Any contigs with extremely low coverage (<10) should be removed. Likewise, short contiges (<500bp) should be removed (even if they have a high coverage), since they are unlikely to provide any useful information.
+
+So, let's add that information to the plot below. In addition, we show a way to also plot the contig / Node numbers with the `text()` function.
+
+```{r}
+plot(Length ~ kmer_coverage,
+     data = contig_names_df,
+     log = 'xy',
+     main = "Contig filtering",
+     ylab = "Contig length (bp)",
+     xlab = "Contig k-mer coverage")
+abline(v = 10, lty = 2, col = "red")  # draw vertical line at v; lty = line type
+abline(h = 500, lty = 2, col = "red") # draw horizontal line at h
+text(Length ~ kmer_coverage,
+     data = contig_names_df,
+     labels = Node,                   # pos 1, 2, 3 or 4 mean respectively
+     pos = 2)                         # below, left, above, right of data point
+```
+
+
+#### `ggplot2`: an R plotting package
+
+A popular plotting package in R is `ggplot2`. It is relatively easy to use to make plots with a more advanced layout.
+
+Install the package by running:
+```{r, eval = FALSE}
+install.packages("ggplot2")
+```
+
+Now load the package with:
+```{r, message=FALSE}
+library(ggplot2)
+```
+
+ggplot always first requires us to specify the data set and parameters to be plotted with a call to the `ggplot()` function. Subsequently, we can add "layers" of information to the plot with `+`, e.g. a layer that adds the data as "points":
+
+```{r, out.width='49%', fig.show='hold'}
+ggplot(data = contig_names_df,          # first argument specifies the
+                                        # data frame to use
+       mapping = aes(x = kmer_coverage, # the mapping tells ggplot which
+                                        # variables from data...
+                     y = Length))       #    ...to put on the x- and y-axis
+                                        # (i.e., aesthetics)
+
+ggplot(data = contig_names_df,
+       mapping = aes(x = kmer_coverage,
+                     y = Length)) +
+  geom_point()                          # add a layer with point geometries
+```
+
+Naturally, we can add much more information to our plot, mostly by coding more "layers". In addition, ggplot contains a set of pre-defined 'themes' for specific layouts; we added the "bw theme" here, for instance.
+
+```{r}
+ggplot(contig_names_df,
+       aes(kmer_coverage,
+           Length)) +
+  geom_point() +
+  geom_vline(xintercept = 10, lty = 2, col = "red") +  # adds vertical line
+  geom_hline(yintercept = 500, lty = 2, col = "red") + # adds horizontal line
+  scale_x_log10() +                                # sets x-axis to log10 scale
+  scale_y_log10() +                                # sets y-axis to log10 scale
+  annotation_logticks() +                          # adds log10 ticks
+  labs(title = "Contig filtering",
+       x = "k-mer coverage",
+       y = "Contig length (bp)") +
+  theme_bw()                                       # adds bw theme layout
+```
+
+To easily adjust the labels on the y-axis, this package can prove useful (install first if necessary):
+```{r}
+#install.packages("scales")
+library(scales)
+```
+
+Now we can for example also add the Node numbers as labels (besides or instead of the points) and add a caption. Notice how the y-axis labels and the theme have also changed in the plot below:
+```{r}
+ggplot(contig_names_df,
+       aes(kmer_coverage,
+           Length,
+           label = Node)) +
+  geom_text() +
+  geom_vline(xintercept = 10, lty = 2, col = "red", size = 1) +
+  geom_hline(yintercept = 500, lty = 2, col = "red", size = 1) +
+  scale_x_log10(labels = label_comma(accuracy = 1)) +
+  scale_y_log10(labels = label_comma(accuracy = 1)) +
+  annotation_logticks() +
+  labs(x = "k-mer coverage",
+       y = "Contig length (bp)",
+       caption = "Numbers are node IDs") +
+  theme_classic(base_size = 16)
+```
+
+There are many, many more ways to customize both ggplot and R base plots, but that is beyond the scope of this tutorial.
+
+#### Exercise 5.2.3: Plotting contigs and understanding basics {.tabset .tabset-fade .tabset-pills}
+
+> Remember to write and save your code in your R script "contig_filtering.R"!
+
+##### Question 1 {.unnumbered}
+
+* In the examples above we show the use of the arguments `col`, `pch`, `main`, `lty`, `size` and `base_size`, among others. Describe for each of these what they mean or do. (Hint: If you don't know, you can just play around with the values and see what changes.)
+
+##### Answer {.unnumbered}
+
+```{r, echo=TRUE, eval=FALSE}
+## They are used to change plot aesthetics, respectively:
+# col = color
+# pch = symbol (see ?points() for complete list)
+# main = plot title
+# lty = line type
+# size = line (or point) size / width / thickness
+# base_size = base font size for whole plot
+```
+
+##### Question 2 {.unnumbered}
+
+* Make a plot like the ones above for your contigs, using the data frame you created in the last question. You can either use the base R plot function, or ggplot, as you prefer.
+* Describe along every line of code what it does with comments (using `#`).
+
+##### Answer {.unnumbered}
+
+```{r, echo=TRUE, eval=FALSE}
+# e.g.
+ggplot(contig_names_df, aes(kmer_coverage, Length, label = Node)) +
+  geom_text() +
+  geom_vline(xintercept = 10, lty = 2, col = "red") +
+  geom_hline(yintercept = 500, lty = 2, col = "red") +
+  scale_x_log10(labels = comma) +
+  scale_y_log10(labels = comma) +
+  annotation_logticks() +
+  labs(x = "k-mer coverage",
+       y = "Contig length (bp)",
+       caption = "Numbers are node IDs") +
+  theme_classic(base_size = 16)
+```
+
+##### Question 3 {.unnumbered}
+
+* How many, and which, contigs will you keep? How many will you discard?
+* So what is the percentage of contigs you will retain? Is this along your expectations? Why (not)?
+
+##### Answer {.unnumbered}
+
+```{r, echo=TRUE, eval=FALSE}
+# depends on your file
+# you are keeping the contigs in the upper right quadrant
+# so count how many those are and divide by the total number of contigs
+```
+Try it and check with your assistant that you got it right!
+
+## 5.3 Filter contigs and write to fasta file
+
+You should now have seen which contigs you want to keep for your further downstream analysis. The last step in this tutorial is to select those contigs, and again write them to a new fasta file.
+
+First, ask R which contigs are in line with your parameter cut-offs and cross-check with your plot:
+
+```{r}
+selection_IDs <- contig_names_df$Length >= 500 & # note the & operator here
+                 contig_names_df$kmer_coverage >= 10
+selection_IDs
+which(selection_IDs) # which are TRUE?
+```
+
+Now select only those contigs and store them in a new object:
+
+```{r}
+contigs_selected <- contigs[selection_IDs]
+contigs_selected
+```
+
+Lastly, write this object to a fasta file, using the `writeXStringSet()` function from the `Biostrings` package that was still loaded from earlier on in the tutorial:
+
+```{r, eval = FALSE}
+# using relative path
+## write to your current working directory, which you can check with getwd()
+writeXStringSet(contigs_selected, filepath = "03_<ESL0xxx>_contigs_filtered.fasta")
+# using absolute path
+# * do not break your path into a separate line
+writeXStringSet(contigs_selected,
+                filepath = "path/where/to/save/03_<ESL0xxx>_contigs_filtered.fasta")
+```
+
+### Exercise 5.3.1: Contig selection and write to fasta file {.tabset .tabset-fade .tabset-pills}
+
+> Remember to write and save your code in your R script "contig_filtering.R"!
+
+#### Question 1 {.unnumbered}
+
+* Make code to select...
+  + ...only contigs _smaller_ than 400 bp.
+  + ...only contigs with a k-mer coverage _between_ 20 and 100.
+  + ..._bonus_: only contigs _longer than_ 500 bp *OR* with a k-mer coverage _of at least_ 10. (Hint: whereas the AND operator is `&`, the OR operator is `|`.)
+
+#### Answer {.unnumbered}
+
+```{r, echo=TRUE, eval=FALSE}
+# take note of correct application of <, >, <=, >=, & and |
+# e.g.:
+contigs[contig_names_df$Length < 400]
+contigs[contig_names_df$kmer_coverage >= 20 &
+        contig_names_df$kmer_coverage <= 100]
+contigs[contig_names_df$Length > 500 | contig_names_df$kmer_coverage >= 10]
+```
+
+#### Question 2 {.unnumbered}
+
+* Make your contig selection and write it to a new fasta file, called "03_<ESL0xxx>_contigs_selected.fasta", like in the example above.
+* Upload this file to your working directory on the cluster again, using the `scp` command.
+
+#### Answer {.unnumbered}
+
+```{r, echo=TRUE, eval=FALSE}
+selection_IDs <- contig_names_df$Length > 500 &
+                 contig_names_df$kmer_coverage > 10
+contigs_selected <- contigs[selection_IDs]
+writeXStringSet(contigs_selected, "03_<ESL0xxx>_contigs_filtered.fasta")
+```
+
+```{bash engine.opts='-l', eval=FALSE, echo=TRUE}
+# Put the command on the same line. Text is wrapped for visibility!
+scp /path/to/03_<ESL0xxx>_contigs_filtered.fasta
+      <yourusername>@curnagl.dcsr.unil.ch:<path/to/copy/to>
+```
+
