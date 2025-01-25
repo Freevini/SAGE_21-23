@@ -2,17 +2,11 @@
 
 ![Graphical abstract](Images/SAGE_logo.png)
 
-This course repository corresponds to the following manuscript:
-
-Vincent Somerville, … Garance Sarton-Lohéac, Vincent de Bakker, Yassin El-Chazi, Lucie Kesner, Malick Ndiaye, Daniel Garrido-Sanz, Aiswarya Prasad, German Bonilla-Rosso, Florent Mazel, Vladimir Sentchilo, Sylvain Moineau, Corinne F Maurice, SAGE course students 21/22 and 22/23, Philipp Engel 2024. “Strain-level and phenotypic stability contrasts with plasmid and phage variability in water kefir communities” *BioRXiv*
-
-## Abstract
-
-**S**equence **A** (meta)**GE**nome (SAGE) is a year-long Master's course at the University of Lausanne. In this course, Master students get a hands-on training in bioinformatics and microbial genomics by sequencing and comparing genomes of bacteria that have not been studied before! The course concept is training-through-research. Every year we study a different subject. This course was done on water kefir. 
+**S**equence **A** (meta)**GE**nome (SAGE) is a year-long Master's course at the University of Lausanne. In this course, Master students get a hands-on training in bioinformatics and microbial genomics by sequencing and comparing genomes of bacteria that have not been studied before! The course concept is training-through-research. Every year we study a different subject. This course was done on water kefir.
 
 ## Repository Overview
 
-This course is structured into two main components: theoretical lectures and hands-on practical sessions.
+This course is taught over two semester (SAGE1 and SAGE2) and is structured into two main components: theoretical lectures and hands-on practical sessions.
 
 ### Lectures
 
@@ -55,6 +49,28 @@ The genomic data is further stored under the following Bioprojects:
 - [Bioproject placeholder](https://www.ncbi.nlm.nih.gov/bioproject/PRJNA717134)
 - [Bioproject placeholder](https://www.ncbi.nlm.nih.gov/bioproject/PRJNA1048529)
 - [Bioproject placeholder](https://www.ncbi.nlm.nih.gov/bioproject/PRJNA1083966)
+
+## Course instructors and code contributors
+
+- Aiswarya Prasad
+- Daniel Garrido-Sanz
+- Garance Sarton-Lohéac
+- German Bonilla-Rosso
+- Florent Mazel
+- Lucie Kesner
+- Malick Ndiaye
+- Philipp Engel
+- Vincent de Bakker
+- Vincent Somerville
+- Vladimir Sentchilo
+- Yassin El-Chazi
+
+## Citation
+
+This course repository corresponds to the following manuscript:
+
+Vincent Somerville, … Garance Sarton-Lohéac, Vincent de Bakker, Yassin El-Chazi, Lucie Kesner, Malick Ndiaye, Daniel Garrido-Sanz, Aiswarya Prasad, German Bonilla-Rosso, Florent Mazel, Vladimir Sentchilo, Sylvain Moineau, Corinne F Maurice, SAGE course students 21/22 and 22/23, Philipp Engel 2024. “Strain-level and phenotypic stability contrasts with plasmid and phage variability in water kefir communities” *BioRXiv*
+
 
 ## Disclaimer
 
